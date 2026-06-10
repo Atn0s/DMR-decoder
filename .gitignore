@@ -1,0 +1,22 @@
+# Large binary IQ data files
+*.rawiq
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Generated images
+*.png
+
+# IDE settings
+.vscode/
+
+# Python virtual environment
+venv/
+.venv/
+env/
+
+# OS files
+.DS_Store
+Thumbs.db

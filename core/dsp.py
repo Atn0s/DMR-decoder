@@ -25,6 +25,9 @@ def _interp(arr: np.ndarray, pos: np.ndarray) -> np.ndarray:
 def adaptive_slice_bits(seg: np.ndarray) -> bitarray:
     hi = np.percentile(seg, 90)
     lo = np.percentile(seg, 10)
+    if hi == lo:
+        # degenerate: cannot distinguish levels, map everything to +1
+        return bitarray([0, 0] * len(seg))
     center = 0.5 * (hi + lo)
     umid = 0.5 * (hi + center)
     lmid = 0.5 * (lo + center)
@@ -44,6 +47,8 @@ def adaptive_slice_bits(seg: np.ndarray) -> bitarray:
 def frontend(iq_dec: np.ndarray, fo: float = 0.0, fs: float = Fs_dec,
              cutoff: float = 9500.0, ntaps: int = 151) -> np.ndarray:
     """DDC (fo!=0) + channel filter + FM discriminator + DC removal."""
+    if len(iq_dec) < 512:
+        raise ValueError(f"frontend: signal too short ({len(iq_dec)} samples), need >= 512")
     if fo != 0.0:
         n = np.arange(len(iq_dec))
         iq_dec = iq_dec * np.exp(-1j * 2 * np.pi * fo * n / fs)

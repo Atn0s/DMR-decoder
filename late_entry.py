@@ -11,12 +11,10 @@ import numpy as np
 import scipy.signal as signal
 from bitarray import bitarray
 
-import dmr_pipeline_v2 as P
-from okdmr.dmrlib.etsi.fec.vbptc_128_72 import VBPTC12873
-from okdmr.dmrlib.etsi.layer2.pdu.embedded_signalling import EmbeddedSignalling
-from okdmr.dmrlib.etsi.layer2.elements.lcss import LCSS
-from okdmr.dmrlib.etsi.layer2.pdu.full_link_control import FullLinkControl
-from okdmr.dmrlib.etsi.fec.five_bit_checksum import FiveBitChecksum
+import dmr_pipeline_v2 as P   # keep for templates_sym, lc_front_end, read_rawiq, Fs_wide, UP_FACTOR, DOWN_FACTOR
+from core.burst_type import SPS
+from core.dsp import _interp, adaptive_slice_bits
+from core.decoder import LateEntryCollector
 from bitarray.util import ba2int
 
 # 一个语音突发 = 27.5ms，TDMA 两时隙 => 同一时隙相邻语音突发间隔 60ms = 2880 样点 @48k
@@ -29,7 +27,7 @@ def find_voice_sync_anchor(y, name, thr_ratio=0.7):
     """样点域 NCC 用语音同步码锁定语音突发 (Burst A)。返回 [(中心样点, 极性)] 列表。
     真实语音超帧中 Burst A 每 360ms 出现一次，NCC 应达 ~0.85+。"""
     ref = P.templates_sym[name]
-    rwave = np.repeat(ref, P.SPS)
+    rwave = np.repeat(ref, SPS)
     c = signal.correlate(y, rwave, mode='same')
     e = np.convolve(y ** 2, np.ones(len(rwave)), mode='same')
     e = np.where(e <= 0, 1e-9, e)
@@ -44,11 +42,11 @@ def lock_phase_from_anchor(y, anchor_center, sgn, name):
     levels = np.array([-3, -1, 1, 3])
     best = (1e18, 0.0)
     for ph in np.linspace(-6, 6, 49):
-        start = anchor_center - (54 + 12) * P.SPS + ph
-        pos = start + np.arange(132) * P.SPS
+        start = anchor_center - (54 + 12) * SPS + ph
+        pos = start + np.arange(132) * SPS
         if pos[0] < 0 or pos[-1] >= len(y) - 1:
             continue
-        seg = sgn * P._interp(y, pos)
+        seg = sgn * _interp(y, pos)
         sy = seg[54:78]
         a, b = np.linalg.lstsq(np.vstack([sy, np.ones(24)]).T, ref, rcond=None)[0]
         segc = a * seg + b
@@ -62,12 +60,12 @@ def lock_phase_from_anchor(y, anchor_center, sgn, name):
 def recover_voice_burst(y, anchor_center, j, ph, sgn):
     """取第 j 个突发（相对 Burst A，j=0 即 A 本身）的 264-bit。沿用 A 的相位/极性，
     幅度由自适应判决器自校准（语音突发 B-E 中心是嵌入信令，无已知图案可仿射）。"""
-    start = anchor_center + BURST_STRIDE * j - (54 + 12) * P.SPS + ph
-    pos = start + np.arange(132) * P.SPS
+    start = anchor_center + BURST_STRIDE * j - (54 + 12) * SPS + ph
+    pos = start + np.arange(132) * SPS
     if pos[0] < 0 or pos[-1] >= len(y) - 1:
         return None
-    seg = sgn * P._interp(y, pos)
-    return P.adaptive_slice_bits(seg)
+    seg = sgn * _interp(y, pos)
+    return adaptive_slice_bits(seg)
 
 
 def parse_emb_center(ba264):
@@ -79,61 +77,28 @@ def parse_emb_center(ba264):
 
 
 def decode_one_superframe(y, anchor_center, sgn, name, verbose=False):
-    """以一个语音同步突发 (Burst A) 为超帧起点，沿超帧内 6 个突发跑 EMB/LCSS
+    """以一个语音同步突发 (Burst A) 为超帧起点，用 LateEntryCollector 跑 EMB/LCSS
     状态机收集 First→Last 共 4×32=128 bit，VBPTC(128,72) 纠错出 LC。成功返回 dict。"""
     ph = lock_phase_from_anchor(y, anchor_center, sgn, name)
-    frags = []
-    collecting = False
-    for j in range(0, 7):              # A(j=0) 之后 B..F 携带嵌入信令
+    collector = LateEntryCollector()
+    sync_type = "MS_VOICE" if "MS" in name else "BS_VOICE"
+    for j in range(0, 7):
         ba = recover_voice_burst(y, anchor_center, j, ph, sgn)
         if ba is None:
             break
-        emb_bits, signalling = parse_emb_center(ba)
-        try:
-            emb = EmbeddedSignalling.from_bits(emb_bits)
-        except Exception:
-            continue
-        lcss = emb.link_control_start_stop
-        pok = emb.emb_parity_ok
-        if not EMB_TOLERANT and not pok:
-            continue
-        if not collecting:
-            if lcss == LCSS.FirstFragmentLC:
-                collecting = True
-                frags = [signalling]
-        else:
-            frags.append(signalling)
-            if len(frags) == 4:
-                break
-    if len(frags) < 4:
-        return None
-    b128 = frags[0] + frags[1] + frags[2] + frags[3]
-    lc77 = VBPTC12873.deinterleave_data_bits(b128, include_cs5=True)
-    lc72 = lc77[0:72]
-    rx_cs5 = ba2int(lc77[72:77])
-    # CS5 (ETSI B.3.11) 是重组 LC 的真正校验：保护全部 72-bit，比仅护 16-bit 头的
-    # EMB QR(16,7,6) 强得多。校验失败说明信令碎片有错（拼接/位错），丢弃。
-    # CS5 合法范围 0-30；收到 31 必为位错，直接判失败。
-    cs5_ok = (rx_cs5 <= 30) and FiveBitChecksum.verify(lc72.tobytes(), rx_cs5)
-    if CS5_STRICT and not cs5_ok:
-        return None
-    try:
-        flc = FullLinkControl.from_bits(lc77)
-    except Exception as e:
-        if verbose:
-            print("    VBPTC 后 FLC 解析失败:", e)
-        return None
-    dst = flc.group_address or flc.target_address
-    return {
-        "anchor": anchor_center,
-        "cs5_ok": cs5_ok,
-        "flco": int(flc.full_link_control_opcode.value),
-        "flco_name": flc.full_link_control_opcode.name,
-        "fid": int(flc.feature_set_id.value),
-        "fid_name": flc.feature_set_id.name,
-        "src_id": flc.source_address,
-        "dst_id": dst,
-    }
+        result = collector.feed(ba, sync_type)
+        if result is not None:
+            return {
+                "anchor":    anchor_center,
+                "cs5_ok":    result["extra"].get("cs5_ok", True),
+                "flco":      0,
+                "flco_name": result.get("flco", "UNKNOWN"),
+                "fid":       0,
+                "fid_name":  "UNKNOWN",
+                "src_id":    result.get("src", 0),
+                "dst_id":    result.get("dst", 0),
+            }
+    return None
 
 
 def late_entry_decode(y, name, verbose=True):

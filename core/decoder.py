@@ -110,7 +110,7 @@ class LateEntryCollector:
         else:
             expected_cont = len(self._frags) < 3
             if expected_cont:
-                if lcss != LCSS.ContinuationFragmentLC:
+                if lcss != LCSS.ContinuationFragmentLCorCSBK:
                     # wrong LCSS mid-sequence, restart if it's a new First
                     self.reset()
                     if lcss == LCSS.FirstFragmentLC:
@@ -118,8 +118,8 @@ class LateEntryCollector:
                         self._frags = [signalling]
                     return None
             else:
-                # expecting LastFragmentLC for the 4th fragment
-                if lcss != LCSS.LastFragmentLC:
+                # expecting LastFragmentLCorCSBK for the 4th fragment
+                if lcss != LCSS.LastFragmentLCorCSBK:
                     self.reset()
                     if lcss == LCSS.FirstFragmentLC:
                         self._collecting = True

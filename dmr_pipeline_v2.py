@@ -24,7 +24,6 @@ from core.burst_type import (
 from core.dsp import (
     read_rawiq, _interp, adaptive_slice_bits,
     lc_front_end_compat as lc_front_end,
-    find_sync_positions as _find_data_sync_positions_new,
 )
 
 plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Liberation Sans', 'Arial']

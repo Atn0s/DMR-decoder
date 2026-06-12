@@ -15,20 +15,23 @@ try:
 except ImportError:
     OKDMR_AVAILABLE = False
 
+# --- core/ imports (migrated functions) ---
+from core.burst_type import (
+    Fs_wide, Fs_dec, SPS, UP_FACTOR, DOWN_FACTOR,
+    NCC_THRESHOLD_VOICE as NCC_THRESHOLD,
+    DEV_NOMINAL, VLC_RS_MASK, SYNC_TEMPLATES,
+)
+from core.dsp import (
+    read_rawiq, _interp, adaptive_slice_bits,
+    lc_front_end_compat as lc_front_end,
+    find_sync_positions as _find_data_sync_positions_new,
+)
+
 plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Liberation Sans', 'Arial']
 plt.rcParams['axes.unicode_minus'] = True
 
-# ================== Constants ==================
-Fs_wide = 2500000.0        # 2.5 MHz wideband sampling rate
-Fs_dec = 48000.0           # baseband rate (SPS = 10)
-SPS = 10
-UP_FACTOR = 12             # 2.5 MHz * 12 / 625 = 48 kHz
-DOWN_FACTOR = 625
-NCC_THRESHOLD = 0.68
-DEV_NOMINAL = 1944.0       # Hz, outer-symbol (+3/-3) frequency deviation
 
-
-def hex_to_symbols(hex_str):
+def _hex_to_symbols_local(hex_str):
     bin_str = "".join(f"{int(c, 16):04b}" for c in hex_str)
     symbols = []
     for i in range(0, len(bin_str), 2):
@@ -42,23 +45,16 @@ def hex_to_symbols(hex_str):
 
 # symbol-level reference (for sync-aided calibration) and waveform (for NCC)
 templates_sym = {
-    "BS Sourced": hex_to_symbols("755FD7DF75F7"),
-    "MS Sourced": hex_to_symbols("7F7D5DD57DFD"),
+    "BS Sourced": _hex_to_symbols_local("755FD7DF75F7"),
+    "MS Sourced": _hex_to_symbols_local("7F7D5DD57DFD"),
 }
 templates_wave = {k: np.repeat(v, SPS) for k, v in templates_sym.items()}
 
 # DATA sync words (Voice LC Header is a DATA-type burst, uses these, not voice sync)
 data_sync_sym = {
-    "BS Sourced": hex_to_symbols("DFF57D75DF5D"),
-    "MS Sourced": hex_to_symbols("D5D7F77FD757"),
+    "BS Sourced": _hex_to_symbols_local("DFF57D75DF5D"),
+    "MS Sourced": _hex_to_symbols_local("D5D7F77FD757"),
 }
-
-
-def read_rawiq(filename):
-    data = np.fromfile(filename, dtype=np.int16)
-    I, Q = data[0::2], data[1::2]
-    length = min(len(I), len(Q))
-    return (I[:length] + 1j * Q[:length]) / 32768.0
 
 
 def verify_periodicity(peaks, target_period_ms, tolerance_ms=15.0):
@@ -171,46 +167,6 @@ def gate_and_calibrate(syms, positions, ref_sym, ncc_peaks, burst_half_samples):
 
 
 
-# --- Voice LC Header verification: Reed-Solomon(12,9,4), NOT CRC-24 ---
-# ETSI TS 102 361-1 B.3.6: the 24 bits after the 72-bit FLC are RS(12,9,4) parity,
-# masked with the Voice-LC-Header data-type mask 0x969696 (B.3.12). ok-dmrlib ships
-# ReedSolomon1294.check(data12, mask). (The earlier CRC-24 assumption was wrong; that
-# is why crc24_selftest.py could never find matching params.)
-VLC_RS_MASK = bytes([0x96, 0x96, 0x96])
-
-
-def symbol_to_dibit(val):
-    """4FSK hard decision -> 2 bits (ETSI Table). +3->01 +1->00 -1->10 -3->11."""
-    if val > 2.0:
-        return [0, 1]
-    elif val > 0.0:
-        return [0, 0]
-    elif val > -2.0:
-        return [1, 0]
-    else:
-        return [1, 1]
-
-
-def adaptive_slice_bits(seg):
-    """dsd-fme-style adaptive 4-level slicer. Per-burst max/min/center/umid/lmid
-    decision thresholds (robust to residual gain/DC drift), -> 264 bits."""
-    hi = np.percentile(seg, 90)
-    lo = np.percentile(seg, 10)
-    center = 0.5 * (hi + lo)
-    umid = 0.5 * (hi + center)
-    lmid = 0.5 * (lo + center)
-    bits = []
-    for v in seg:
-        if v >= umid:
-            bits.extend([0, 1])     # +3
-        elif v >= center:
-            bits.extend([0, 0])     # +1
-        elif v >= lmid:
-            bits.extend([1, 0])     # -1
-        else:
-            bits.extend([1, 1])     # -3
-    return bitarray(bits)
-
 
 def decode_lc_header_from_symbols(seg132):
     """Decode a Voice LC Header from 132 sync-calibrated burst symbols.
@@ -262,31 +218,6 @@ def decode_lc_header_from_symbols(seg132):
     })
     return res
 
-
-def _interp(arr, pos):
-    """Linear interpolation of arr at fractional sample positions pos (array)."""
-    i = np.floor(pos).astype(int)
-    fr = pos - i
-    i = np.clip(i, 0, len(arr) - 2)
-    return arr[i] * (1 - fr) + arr[i + 1] * fr
-
-
-def lc_front_end(iq_dec, cutoff=9500.0, ntaps=151):
-    """Dedicated front-end for LC decode: residual-carrier removal + WIDER channel
-    filter (9.5 kHz, vs 6.5 kHz which clips outer +-1944 Hz symbols) + FM discriminator,
-    centered on the active-region median (robust to 4FSK spectral-peak bias)."""
-    f, ps = signal.welch(iq_dec, fs=Fs_dec, nperseg=4096, return_onesided=False)
-    f = np.fft.fftshift(f); ps = np.fft.fftshift(ps)
-    cf = f[np.argmax(ps)]
-    n = np.arange(len(iq_dec))
-    iqf = iq_dec * np.exp(-1j * 2 * np.pi * cf * n / Fs_dec)
-    iqf = signal.filtfilt(signal.firwin(ntaps, cutoff, fs=Fs_dec), [1.0], iqf)
-    yd = np.angle(iqf[1:] * np.conj(iqf[:-1]))
-    amp = np.abs(iqf[:-1])
-    active = amp > (np.median(amp) + 0.3 * (np.mean(amp) - np.median(amp)))
-    center = np.median(yd[active]) if np.any(active) else np.median(yd)
-    y = (yd - center) * (3.0 / (2.0 * np.pi * DEV_NOMINAL / Fs_dec))
-    return y
 
 
 def find_data_sync_positions(y, name, thr_ratio=0.55):

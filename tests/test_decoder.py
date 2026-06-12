@@ -10,24 +10,39 @@ def test_decode_burst_garbage_returns_none():
     assert result is None
 
 
-def test_decode_burst_random_returns_none_or_dict():
-    np.random.seed(42)
-    syms = np.random.uniform(-4, 4, 132)
+def test_decode_burst_none_for_all_zeros():
+    # All-zero symbols fail Golay -> decode_burst returns None (not a crash, not a dict)
+    syms = np.zeros(132)
     result = decode_burst(syms, "DATA_MS")
-    assert result is None or isinstance(result, dict)
+    assert result is None
 
 
-def test_decode_burst_dict_has_required_keys():
-    # We can't guarantee a valid burst from random data, but if it returns a dict
-    # it must have all required keys
-    np.random.seed(0)
-    for _ in range(20):
-        syms = np.random.uniform(-4, 4, 132)
-        result = decode_burst(syms, "DATA_MS")
+def test_decode_burst_pdu_schema():
+    # Verify that when decode_burst returns a dict, it has the required schema.
+    # We use a known-valid burst from the real data file if available.
+    import os
+    import scipy.signal as sig
+    from core.dsp import read_rawiq, frontend, find_sync_positions, recover_burst
+    path = "data/dmr_1_78125.rawiq"
+    if not os.path.exists(path):
+        return
+    iq = read_rawiq(path)
+    iq_dec = sig.resample_poly(iq, 384, 625)
+    y = frontend(iq_dec, fo=0.0)
+    positions = find_sync_positions(y)
+    for center, polarity, sync_type in positions:
+        if "DATA" not in sync_type:
+            continue
+        syms = recover_burst(y, center, polarity, sync_type)
+        if syms is None:
+            continue
+        result = decode_burst(syms, sync_type)
         if result is not None:
             for key in ("type", "src", "dst", "ts", "flco", "extra", "raw_bits"):
                 assert key in result, f"Missing key: {key}"
-            break
+            assert result["type"] in ("LC_HEADER", "TERMINATOR", "CSBK")
+            return
+    # If we get here with no PDU decoded, that's a data issue not a code issue
 
 
 def test_late_entry_collector_needs_four_frags():

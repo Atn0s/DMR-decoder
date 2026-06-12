@@ -5,8 +5,8 @@ import numpy as np
 import scipy.signal as signal
 from dataclasses import dataclass, field
 
-from core.burst_type import Fs_wide, Fs_dec, UP_FACTOR, DOWN_FACTOR
-from core.dsp import read_rawiq, frontend, find_sync_positions, recover_burst, adaptive_slice_bits
+from core.burst_type import Fs_wide, Fs_dec, UP_FACTOR, DOWN_FACTOR, SPS, SYNC_TEMPLATES
+from core.dsp import read_rawiq, frontend, find_sync_positions, recover_burst, adaptive_slice_bits, _interp
 from core.decoder import decode_burst, LateEntryCollector
 
 
@@ -28,6 +28,8 @@ def detect_sample_rate(path: str) -> int | None:
 
 
 PSD_PEAK_THRESHOLD_DB = 15  # dB above median noise floor for signal candidate detection
+# At 48kHz, same-slot consecutive voice bursts are separated by one full 60ms TDMA frame = 2880 samples
+BURST_STRIDE = 2880
 
 
 def _psd_blind_search(iq: np.ndarray, fs: float) -> list[float]:
@@ -41,11 +43,49 @@ def _psd_blind_search(iq: np.ndarray, fs: float) -> list[float]:
     return [float(f[p]) for p in peaks]
 
 
+def _lock_voice_phase(y: np.ndarray, anchor: int, polarity: float, sync_type: str) -> float:
+    """Lock sub-symbol phase using Burst A's known Voice Sync region (symbols [54,78))."""
+    ref = SYNC_TEMPLATES[sync_type]
+    levels = np.array([-3, -1, 1, 3])
+    best = (1e18, 0.0)
+    for ph in np.linspace(-8, 8, 65):
+        start = anchor - (54 + 12) * SPS + ph
+        pos = start + np.arange(132) * SPS
+        if pos[0] < 0 or pos[-1] >= len(y) - 1:
+            continue
+        seg = polarity * _interp(y, pos)
+        sy = seg[54:78]
+        a, b = np.linalg.lstsq(np.vstack([sy, np.ones(24)]).T, ref, rcond=None)[0]
+        segc = a * seg + b
+        near = levels[np.argmin(np.abs(segc[:, None] - levels[None, :]), axis=1)]
+        resid = np.mean((segc - near) ** 2)
+        if resid < best[0]:
+            best = (resid, ph)
+    return best[1]
+
+
+def _recover_stepped_burst(y: np.ndarray, anchor: int, j: int, ph: float, polarity: float):
+    """Recover voice burst j hops from Burst A anchor using fixed BURST_STRIDE.
+    Returns 264-bit bitarray or None if out of bounds."""
+    start = anchor + BURST_STRIDE * j - (54 + 12) * SPS + ph
+    pos = start + np.arange(132) * SPS
+    if pos[0] < 0 or pos[-1] >= len(y) - 1:
+        return None
+    seg = polarity * _interp(y, pos)
+    return adaptive_slice_bits(seg)
+
+
 def _decode_loop(y: np.ndarray) -> list[dict]:
-    """Shared decode loop: sync detection, dedup, burst recovery, and PDU decoding."""
+    """Shared decode loop: sync detection, dedup, burst recovery, and PDU decoding.
+
+    Voice Sync positions are Burst A anchors. Subsequent bursts B-F are stepped
+    at fixed BURST_STRIDE without re-running NCC, so LateEntryCollector can
+    assemble the 4 EMB fragments (First+Cont+Cont+Last) it needs.
+    Each superframe gets its own LateEntryCollector to prevent cross-superframe
+    state pollution.
+    """
     positions = find_sync_positions(y)
     results = []
-    collector = LateEntryCollector()
     seen_bursts: set[tuple] = set()
 
     for center, polarity, sync_type in positions:
@@ -54,19 +94,25 @@ def _decode_loop(y: np.ndarray) -> list[dict]:
             continue
         seen_bursts.add(dedup_key)
 
-        symbols = recover_burst(y, center, polarity, sync_type)
-        if symbols is None:
-            continue
-
-        ba264 = adaptive_slice_bits(symbols)
-
         if "VOICE" in sync_type:
-            pdu = collector.feed(ba264, sync_type)
+            # Burst A anchor: step through A(j=0) to F(j=5) at fixed stride
+            ph = _lock_voice_phase(y, center, polarity, sync_type)
+            collector = LateEntryCollector()
+            for j in range(6):
+                ba = _recover_stepped_burst(y, center, j, ph, polarity)
+                if ba is None:
+                    break
+                pdu = collector.feed(ba, sync_type)
+                if pdu is not None:
+                    results.append(dict(pdu))
+                    break
         else:
+            symbols = recover_burst(y, center, polarity, sync_type)
+            if symbols is None:
+                continue
             pdu = decode_burst(symbols, sync_type)
-
-        if pdu is not None:
-            results.append(dict(pdu))
+            if pdu is not None:
+                results.append(dict(pdu))
 
     return results
 

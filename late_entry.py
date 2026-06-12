@@ -218,7 +218,7 @@ def main():
     else:
         # 默认：优先用干净窄带原始文件（嵌入信令在此最稳），再试合成宽带文件
         targets = []
-        for f in ("dmr_2_78125.rawiq", "dmr_1_78125.rawiq", "synthesized_wideband_2.5MHz.rawiq"):
+        for f in ("data/dmr_2_78125.rawiq", "data/dmr_1_78125.rawiq", "data/synthesized_wideband_2.5MHz.rawiq"):
             if os.path.exists(f):
                 targets.append(f)
         if not targets:

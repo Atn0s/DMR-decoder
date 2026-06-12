@@ -482,7 +482,7 @@ def plot_candidate(iq_dec, y_clipped, ncc_results, best, f_offset, idx):
     plt.show()
 
 def main():
-    target_file = "synthesized_wideband_2.5MHz.rawiq"
+    target_file = "data/synthesized_wideband_2.5MHz.rawiq"
     if not os.path.exists(target_file):
         print("Error: %s not found. Run synthesis.py first!" % target_file)
         return

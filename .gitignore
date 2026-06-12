@@ -1,13 +1,15 @@
 # Large binary IQ data files
 *.rawiq
+data/
+
+# Generated images and output
+*.png
+output/
 
 # Python bytecode cache
 __pycache__/
 *.pyc
 *.pyo
-
-# Generated images
-*.png
 
 # IDE settings
 .vscode/

@@ -5,6 +5,7 @@ from realtime.ring_buffer import RingBuffer
 from realtime.detector import Detector
 from realtime.aggregator import SessionAggregator, CallRecord
 from realtime.worker import decode_window
+from realtime.iq_source import FileIQSource
 
 
 class RealtimeScanner:
@@ -108,3 +109,64 @@ class RealtimeScanner:
             self.source.close()
 
         return all_closed
+
+
+def _detect_sample_rate(path: str) -> float | None:
+    """Reuse scanner.detect_sample_rate to infer fs from filename (e.g. _78125.rawiq)."""
+    import scanner
+    fs = scanner.detect_sample_rate(path)
+    return float(fs) if fs else None
+
+
+def main():
+    """CLI entry point: stream an offline .rawiq file through the realtime pipeline.
+
+    Usage:
+        python -m realtime.scanner_rt <file.rawiq> [--fs HZ] [--workers N]
+                                      [--throttle] [--pool]
+    """
+    import argparse
+    import os
+
+    parser = argparse.ArgumentParser(
+        description="DMR realtime scanner — stream an IQ file through the realtime pipeline")
+    parser.add_argument("path", help="path to a .rawiq file (interleaved int16 IQ)")
+    parser.add_argument("--fs", type=float, default=None,
+                        help="sample rate in Hz (default: inferred from filename, "
+                             "e.g. dmr_1_78125.rawiq -> 78125)")
+    parser.add_argument("--workers", type=int, default=2,
+                        help="number of decode workers (default: 2)")
+    parser.add_argument("--throttle", action="store_true",
+                        help="throttle file reads to real-time pacing (simulate live SDR)")
+    parser.add_argument("--pool", action="store_true",
+                        help="use a multiprocessing worker pool (default: serial)")
+    parser.add_argument("--chunk", type=int, default=None,
+                        help="acquisition chunk size in samples (default: ~1s of data)")
+    args = parser.parse_args()
+
+    if not os.path.exists(args.path):
+        parser.error(f"file not found: {args.path}")
+
+    fs = args.fs or _detect_sample_rate(args.path)
+    if fs is None:
+        parser.error("could not infer sample rate from filename; pass --fs HZ")
+
+    chunk = args.chunk or int(fs)
+    print(f"=== Realtime scan: {args.path} (fs={fs/1e6:.4f} MHz, "
+          f"workers={args.workers}, throttle={args.throttle}, pool={args.pool}) ===")
+
+    src = FileIQSource(args.path, sample_rate=fs, chunk_samples=chunk,
+                       throttle=args.throttle)
+    rt = RealtimeScanner(src, num_workers=args.workers, use_pool=args.pool)
+
+    def on_call(c: CallRecord):
+        fo_str = f"fo={c.fo_hz/1e3:+.1f}kHz " if c.fo_hz else ""
+        print(f"[CALL] {fo_str}SRC={c.src} DST={c.dst} FLCO={c.flco} "
+              f"closed_by={c.closed_by} windows={c.start_window}-{c.end_window}")
+
+    calls = rt.run(on_call=on_call)
+    print(f"=== total calls: {len(calls)} ===")
+
+
+if __name__ == "__main__":
+    main()

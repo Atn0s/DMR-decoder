@@ -139,3 +139,46 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+
+def synthesize_scenario(scenario, out_path, fs_out=2_500_000.0, fs_in=78125,
+                        snr_db=20, data_dir="data"):
+    """Synthesize a wideband IQ file from a time-scripted scenario.
+
+    scenario: list of (start_sec, dur_sec, fo_hz, src_filename).
+    Each signal appears ONLY within its time window (zeros outside), is upsampled
+    to fs_out, shifted to fo_hz, summed, then AWGN is added at snr_db (wideband).
+    Returns out_path."""
+    L = int(round(fs_out / fs_in))
+    total_sec = max(s + d for (s, d, _, _) in scenario)
+    n_out = int(total_sec * fs_out)
+    wideband = np.zeros(n_out, dtype=np.complex128)
+
+    for (start_sec, dur_sec, fo_hz, fname) in scenario:
+        narrow = read_rawiq(os.path.join(data_dir, fname))
+        n_in_needed = int(dur_sec * fs_in)
+        seg = extract_or_pad(narrow, n_in_needed)
+        up = resample_poly(seg, L, 1)
+        n_seg = len(up)
+        start_idx = int(start_sec * fs_out)
+        end_idx = min(start_idx + n_seg, n_out)
+        t = np.arange(end_idx - start_idx) / fs_out
+        carrier = np.exp(1j * 2 * np.pi * fo_hz * t)
+        wideband[start_idx:end_idx] += up[:end_idx - start_idx] * carrier
+
+    sig_power = np.mean(np.abs(wideband) ** 2)
+    if sig_power > 0:
+        noise_power = sig_power / (10 ** (snr_db / 10))
+        noise = np.sqrt(noise_power / 2) * (np.random.randn(n_out) + 1j * np.random.randn(n_out))
+        wideband = wideband + noise
+
+    peak = np.max(np.abs(wideband))
+    if peak > 0:
+        wideband = (wideband / peak) * 0.9
+    I_out = np.clip(np.round(wideband.real * 32767), -32768, 32767).astype(np.int16)
+    Q_out = np.clip(np.round(wideband.imag * 32767), -32768, 32767).astype(np.int16)
+    out_data = np.empty(2 * n_out, dtype=np.int16)
+    out_data[0::2] = I_out
+    out_data[1::2] = Q_out
+    out_data.tofile(out_path)
+    return out_path

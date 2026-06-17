@@ -62,3 +62,29 @@ def test_silent_spectrum_dispatches_nothing():
     det = Detector(sample_rate=2.5e6)
     win = _noise(8192)
     assert det.process_window(win, 0) == []
+
+
+def test_tracking_channel_dispatched_when_energy_dips():
+    """Strategy C must dispatch TRACKING channels even when their energy
+    is absent in a window, as long as they haven't exceeded hysteresis."""
+    np.random.seed(42)
+    det = Detector(sample_rate=2.5e6)
+    active = _tone(150000.0, 2.5e6, 8192, amp=2.0) + _noise(8192)
+    silent = _noise(8192, amp=0.01)
+
+    # Window 0: strong tone → channel opens ACTIVE, dispatched
+    d0 = det.process_window(active, 0)
+    assert any(d[1] == 150000.0 for d in d0), "channel should be dispatched on open"
+
+    # Window 1: strong tone again → channel goes TRACKING, dispatched
+    d1 = det.process_window(active, 1)
+    assert any(d[1] == 150000.0 for d in d1), "channel should be dispatched while tracking"
+
+    # Window 2: silent (energy dips) — CLOSE_HYSTERESIS=3, so 1 missed window
+    # is within hysteresis; channel must still be dispatched this window
+    d2 = det.process_window(silent, 2)
+    fos_w2 = [d[1] for d in d2]
+    assert 150000.0 in fos_w2, (
+        "TRACKING channel within hysteresis must still be dispatched "
+        f"even when energy is absent; got dispatched freqs: {fos_w2}"
+    )

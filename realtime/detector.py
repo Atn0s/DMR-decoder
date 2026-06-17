@@ -79,8 +79,10 @@ class Detector:
                     self._just_closed.append(fo)
                     del self._channels[fo]
 
-        # Strategy C: dispatch every currently-active channel
-        return [(window_iq, fo, window_id) for fo in sorted(active_freqs)]
+        # Strategy C: dispatch every channel still in the table (ACTIVE/TRACKING).
+        # Channels aged out above have already been removed from self._channels,
+        # so iterating here naturally excludes CLOSING channels.
+        return [(window_iq, fo, window_id) for fo in sorted(self._channels)]
 
     def closed_channels(self) -> list[float]:
         return list(self._just_closed)

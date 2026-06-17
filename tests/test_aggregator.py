@@ -70,3 +70,39 @@ def test_concurrent_calls_tracked_separately():
     agg.feed(_pdu("LC_HEADER", src=1, dst=2, fo=-300000.0, wid=0))
     agg.feed(_pdu("LC_HEADER", src=3, dst=4, fo=150000.0, wid=1))
     assert len(agg.active_calls()) == 2
+
+
+def test_duplicate_terminator_in_overlap_no_phantom():
+    """A TERMINATOR re-decoded in an overlapping window must not create a phantom call.
+
+    Scenario: window_sec=1.0, step_sec=0.9 -> 0.1s overlap. A TERMINATOR burst
+    appearing at the boundary gets decoded in windows 5 and 6. The first closes
+    the call legitimately; the second must be silently ignored, not spawn a new
+    empty CallRecord.
+    """
+    agg = SessionAggregator()
+
+    # Open a call in window 0
+    agg.feed(_pdu("LC_HEADER", wid=0))
+    assert len(agg.active_calls()) == 1
+
+    # First TERMINATOR: closes the call legitimately
+    agg.feed(_pdu("TERMINATOR", wid=5))
+    assert agg.active_calls() == [], "call should be closed after first TERMINATOR"
+
+    # Second TERMINATOR for same (fo, src, dst) — the overlap re-decode
+    agg.feed(_pdu("TERMINATOR", wid=6))
+
+    # Must still be no active calls (no phantom opened)
+    assert agg.active_calls() == [], "second TERMINATOR must not create a phantom call"
+
+    # Collect everything that expire() drains
+    closed = agg.expire(current_window=6, closed_fos=[])
+
+    # Only one real closed record (from the first TERMINATOR in _pending_closed)
+    assert len(closed) == 1, f"expected exactly 1 closed record, got {len(closed)}"
+    assert closed[0].closed_by == "terminator"
+    assert closed[0].end_window == 5
+    # The legitimate record was opened at window 0 and has the right src/dst
+    assert closed[0].src == 1 and closed[0].dst == 2
+    assert closed[0].start_window == 0

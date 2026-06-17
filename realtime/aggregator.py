@@ -40,6 +40,20 @@ class SessionAggregator:
         ptype = pdu["type"]
 
         rec = self._calls.get(key)
+
+        if ptype == "TERMINATOR":
+            # Only close an EXISTING active call. A TERMINATOR with no matching
+            # active call is a duplicate from an overlapping window — ignore it
+            # to prevent a phantom CallRecord being fabricated and closed.
+            if rec is None:
+                return
+            rec.end_window = wid
+            rec.closed_by = "terminator"
+            self._pending_closed.append(rec)
+            del self._calls[key]
+            return
+
+        # LC_HEADER / LATE_ENTRY / CSBK: open-or-hit the call record
         if rec is None:
             rec = CallRecord(
                 fo_hz=key[0], src=pdu["src"], dst=pdu["dst"],
@@ -50,11 +64,6 @@ class SessionAggregator:
         if ptype == "LATE_ENTRY":
             # voice/embedded fragments accumulate (different time segments)
             rec.voice_raw.append(pdu.get("raw_bits", b""))
-        elif ptype == "TERMINATOR":
-            rec.end_window = wid
-            rec.closed_by = "terminator"
-            self._pending_closed.append(rec)
-            del self._calls[key]
 
     def expire(self, current_window: int, closed_fos: list[float]) -> list[CallRecord]:
         closed = list(self._pending_closed)

@@ -1,5 +1,4 @@
 import threading
-import numpy as np
 from multiprocessing import Pool
 
 from realtime.ring_buffer import RingBuffer
@@ -45,6 +44,25 @@ class RealtimeScanner:
             return pool.starmap(decode_window, args)
         return [decode_window(iq, fo, wid, self.fs) for (iq, fo, wid) in tasks]
 
+    def _flush_active_calls(self, window_id: int) -> list[CallRecord]:
+        """Unconditionally close every still-active call as timeout-closed and
+        remove it from the aggregator's active set; return the closed records.
+
+        The aggregator is a completed/reviewed module, so we work through its
+        public surface only. The single public path that both closes and removes
+        active calls is expire(). To guarantee EVERY active call is closed
+        regardless of the window the loop ended on, we call expire() with a window
+        id chosen to exceed every active call's last_window by at least
+        timeout_windows. This is computed from the active calls themselves, so the
+        flush is self-contained and not coupled to the loop's window_id.
+        """
+        active = self.aggregator.active_calls()
+        if not active:
+            return []
+        flush_window = (max((c.last_window for c in active), default=window_id)
+                        + self.aggregator.timeout_windows)
+        return self.aggregator.expire(flush_window, [])
+
     def run(self, on_call=None, max_windows: int | None = None) -> list[CallRecord]:
         acq = threading.Thread(target=self._acquire, daemon=True)
         acq.start()
@@ -76,16 +94,17 @@ class RealtimeScanner:
                 window_id += 1
                 if max_windows is not None and window_id >= max_windows:
                     break
+
+            # Flush remaining active calls as timeout-closed
+            final = self._flush_active_calls(window_id)
+            for rec in final:
+                all_closed.append(rec)
+                if on_call:
+                    on_call(rec)
         finally:
             if pool is not None:
                 pool.close()
                 pool.join()
+            self.source.close()
 
-        # Flush remaining active calls as timeout-closed
-        final = self.aggregator.expire(window_id + self.aggregator.timeout_windows, [])
-        for rec in final:
-            all_closed.append(rec)
-            if on_call:
-                on_call(rec)
-        self.source.close()
         return all_closed

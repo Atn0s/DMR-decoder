@@ -34,6 +34,74 @@ def test_realtime_wideband_two_channels():
     assert len(calls) >= 1
 
 
+class _TrackingSource:
+    """Thin wrapper that records whether close() was called."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.sample_rate = inner.sample_rate
+        self.closed = False
+
+    def read_chunk(self):
+        return self._inner.read_chunk()
+
+    def close(self):
+        self.closed = True
+        self._inner.close()
+
+
+def test_max_windows_flushes_active_call():
+    """After run() returns (max_windows path), no active calls remain in the aggregator
+    and source.close() has been called.
+
+    Regression guard: would catch deletion of the post-loop flush or source.close().
+    The current arithmetic-based flush is mathematically equivalent for normal exits,
+    so this test passes with both old and new code — its value is as a regression guard
+    and contract specification for the explicit flush introduced by this fix.
+    """
+    path = "data/synthesized_wideband_2.5MHz.rawiq"
+    if not os.path.exists(path):
+        pytest.skip("wideband test file not present")
+    inner = FileIQSource(path, sample_rate=2.5e6, chunk_samples=2_500_000, throttle=False)
+    src = _TrackingSource(inner)
+    scanner_rt = RealtimeScanner(src, num_workers=2, window_sec=1.0, step_sec=0.9,
+                                 use_pool=False)
+    calls = scanner_rt.run(max_windows=2)
+    assert isinstance(calls, list)
+    assert scanner_rt.aggregator.active_calls() == [], (
+        f"active calls leaked after run(): {scanner_rt.aggregator.active_calls()}"
+    )
+    assert src.closed, "source.close() was not called after run()"
+
+
+class _DummySource:
+    """Minimal source: satisfies RealtimeScanner.__init__ without any data file."""
+
+    sample_rate = 48000.0
+
+    def read_chunk(self):
+        return None
+
+    def close(self):
+        pass
+
+
+def test_flush_active_calls_closes_everything():
+    """_flush_active_calls must close every active call regardless of window numbers,
+    leaving the aggregator's active set empty, without running the loop."""
+    scanner_rt = RealtimeScanner(_DummySource(), num_workers=1, use_pool=False)
+    pdu = {"type": "LC_HEADER", "src": 1, "dst": 2,
+           "flco": "GroupVoiceChannelUser", "ts": 0, "extra": {},
+           "raw_bits": b"\x00" * 33, "_fo_hz": 150000.0, "_window_id": 0}
+    scanner_rt.aggregator.feed(pdu)
+    assert len(scanner_rt.aggregator.active_calls()) == 1
+
+    closed = scanner_rt._flush_active_calls(window_id=0)
+    assert len(closed) == 1
+    assert closed[0].closed_by == "timeout"
+    assert scanner_rt.aggregator.active_calls() == []
+
+
 def test_overflow_warns_on_starve(tmp_path, capsys):
     """starve_factor>1 with a small ring should produce overflow."""
     path = "data/dmr_1_78125.rawiq"

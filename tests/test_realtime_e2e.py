@@ -114,3 +114,36 @@ def test_overflow_warns_on_starve(tmp_path, capsys):
                                  ring_capacity_sec=0.5, use_pool=False)
     calls = scanner_rt.run(max_windows=5)
     assert isinstance(calls, list)
+
+
+def test_synthesize_scenario_creates_file(tmp_path):
+    import os
+    from utils.synthesis import synthesize_scenario
+    if not os.path.exists("data/dmr_1_78125.rawiq"):
+        pytest.skip("source narrowband file not present")
+    out = str(tmp_path / "scenario.rawiq")
+    scenario = [
+        (0.0, 2.0, -300000.0, "dmr_1_78125.rawiq"),
+        (1.0, 2.0,  150000.0, "dmr_2_78125.rawiq"),
+    ]
+    result = synthesize_scenario(scenario, out, fs_out=2.5e6, data_dir="data")
+    assert os.path.exists(result)
+    # File should hold ~3s of 2.5MHz complex int16 = 3 * 2.5e6 * 2 int16
+    size = os.path.getsize(result)
+    assert size > 2.5e6 * 2 * 2  # at least ~2s worth
+
+
+def test_scenario_through_realtime_pipeline(tmp_path):
+    import os
+    from utils.synthesis import synthesize_scenario
+    from realtime.iq_source import FileIQSource
+    from realtime.scanner_rt import RealtimeScanner
+    if not os.path.exists("data/dmr_1_78125.rawiq"):
+        pytest.skip("source narrowband file not present")
+    out = str(tmp_path / "scenario.rawiq")
+    scenario = [(0.0, 3.0, -300000.0, "dmr_1_78125.rawiq")]
+    synthesize_scenario(scenario, out, fs_out=2.5e6, data_dir="data")
+    src = FileIQSource(out, sample_rate=2.5e6, chunk_samples=2_500_000, throttle=False)
+    rt = RealtimeScanner(src, num_workers=1, use_pool=False)
+    calls = rt.run()
+    assert isinstance(calls, list)

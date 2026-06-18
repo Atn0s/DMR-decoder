@@ -22,10 +22,12 @@ def test_wideband_two_channels_different_subbands(tmp_path):
                               window_sec=1.0, step_sec=0.9)
     calls = scanner.run()
     assert isinstance(calls, list)
-    # at least one real DMR call decoded, with absolute RF near 435MHz
+    # Both signals must be decoded: one below 435 MHz (~433.2 MHz) and one above (~436.8 MHz)
     voice = [c for c in calls if c.flco == "GroupVoiceChannelUser"]
-    assert len(voice) >= 1
-    assert all(abs(c.fo_hz - 435e6) < 3e6 for c in voice)
+    assert any(c.fo_hz < 435e6 for c in voice), \
+        f"No voice call below 435 MHz; got RFs: {[c.fo_hz for c in voice]}"
+    assert any(c.fo_hz > 435e6 for c in voice), \
+        f"No voice call above 435 MHz; got RFs: {[c.fo_hz for c in voice]}"
 
 
 def test_wideband_returns_list_on_noise(tmp_path):

@@ -17,7 +17,7 @@ class WidebandScanner:
 
     def __init__(self, source, num_subbands: int = 32, taps_per_phase: int = 12,
                  oversample: int = 2, window_sec: float = 1.0, step_sec: float = 0.9,
-                 energy_floor_db: float = 6.0):
+                 energy_floor_db: float = 2.0):
         self.source = source
         self.fs = source.sample_rate
         self.center_hz = getattr(source, "center_hz", 0.0)
@@ -29,10 +29,6 @@ class WidebandScanner:
         self.window_samples = int(window_sec * self.subband_rate)
         self.step_samples = int(step_sec * self.subband_rate)
         self.energy_floor_db = energy_floor_db
-        # Valid fo_rel range for each subband: ±half the critically-sampled BW.
-        # Detections outside this window are aliases leaking from adjacent subbands
-        # due to 2x oversampling overlap and should be skipped.
-        self._half_bw = self.fs / num_subbands / 2
         self.aggregator = SessionAggregator()
         # one detector per sub-band (each holds its own frequency state table)
         self._detectors = [Detector(sample_rate=self.subband_rate)
@@ -51,13 +47,13 @@ class WidebandScanner:
         return np.concatenate(chunks)
 
     def _active_subbands(self, subbands: np.ndarray) -> list:
-        # Energy gate: keep sub-bands whose mean power exceeds the quietest
-        # sub-band (noise floor estimate) by energy_floor_db.
-        # Using min rather than median so that when most sub-bands carry signal
-        # the floor is still anchored to the pure-noise sub-band(s).
+        # Energy gate: keep sub-bands whose mean power exceeds the 25th-percentile
+        # noise-floor estimate by energy_floor_db.  Using percentile(25) rather than
+        # min so the floor degrades gracefully as more sub-bands become active —
+        # at least 25% of sub-bands must be quiet for the floor to stay anchored.
         power = np.mean(np.abs(subbands) ** 2, axis=1) + 1e-12
         power_db = 10 * np.log10(power)
-        floor = np.min(power_db)
+        floor = np.percentile(power_db, 25)
         return [i for i in range(len(power_db))
                 if power_db[i] >= floor + self.energy_floor_db]
 
@@ -90,9 +86,10 @@ class WidebandScanner:
                 win = subbands[i, start:stop]
                 tasks = self._detectors[i].process_window(win, wid)
                 for (iq, fo_rel, w) in tasks:
-                    # Skip alias detections outside the primary subband passband.
-                    if abs(fo_rel) > self._half_bw:
-                        continue
+                    # No fo_rel guard: 2x oversampling means overlap-region signals
+                    # legitimately appear in adjacent sub-bands with fo_rel up to
+                    # ±full_bw.  The SessionAggregator merges same-RF detections from
+                    # both sub-bands into one CallRecord via fo_bucket_hz keying.
                     pdus = decode_window(iq, fo_rel, w, self.subband_rate)
                     rf = self.center_hz + float(self.centers[i]) + fo_rel
                     for pdu in pdus:

@@ -137,6 +137,45 @@ def main():
     
     plt.show()
 
+def synthesize_wideband_grid(placements, out_path, fs_out, dur_sec,
+                             fs_in=78125, snr_db=20, data_dir="data"):
+    """Synthesize a wideband IQ file with several narrowband signals placed on a
+    frequency grid, all present for the whole duration.
+
+    placements: list of (fo_hz, src_filename). Each source is truncated/padded to
+    dur_sec, upsampled to fs_out, shifted to fo_hz, summed; then wideband AWGN at
+    snr_db is added and the result is scaled and saved as interleaved int16.
+    Returns out_path."""
+    L = int(round(fs_out / fs_in))
+    n_out = int(dur_sec * fs_out)
+    wideband = np.zeros(n_out, dtype=np.complex128)
+    t = np.arange(n_out) / fs_out
+
+    for (fo_hz, fname) in placements:
+        narrow = read_rawiq(os.path.join(data_dir, fname))
+        seg = extract_or_pad(narrow, int(dur_sec * fs_in))
+        up = extract_or_pad(resample_poly(seg, L, 1), n_out)
+        wideband += up * np.exp(1j * 2 * np.pi * fo_hz * t)
+
+    sig_power = np.mean(np.abs(wideband) ** 2)
+    if sig_power > 0:
+        noise_power = sig_power / (10 ** (snr_db / 10))
+        noise = np.sqrt(noise_power / 2) * (
+            np.random.randn(n_out) + 1j * np.random.randn(n_out))
+        wideband = wideband + noise
+
+    peak = np.max(np.abs(wideband))
+    if peak > 0:
+        wideband = (wideband / peak) * 0.9
+    I_out = np.clip(np.round(wideband.real * 32767), -32768, 32767).astype(np.int16)
+    Q_out = np.clip(np.round(wideband.imag * 32767), -32768, 32767).astype(np.int16)
+    out_data = np.empty(2 * n_out, dtype=np.int16)
+    out_data[0::2] = I_out
+    out_data[1::2] = Q_out
+    out_data.tofile(out_path)
+    return out_path
+
+
 if __name__ == '__main__':
     main()
 

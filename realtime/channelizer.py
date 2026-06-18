@@ -80,6 +80,8 @@ class PolyphaseChannelizer:
         self._tail = np.zeros(0, dtype=np.complex128)
         # Previous (M-1) block-rows, one row per block of N samples processed
         self._state = np.zeros((self.M - 1, self.N), dtype=np.complex128)
+        # State for oversampled path (same shape, separate buffer)
+        self._state_os = np.zeros((self.M - 1, self.N), dtype=np.complex128)
 
     def subband_centers(self) -> np.ndarray:
         """Return sub-band centre frequencies in Hz, ascending, length N.
@@ -105,11 +107,15 @@ class PolyphaseChannelizer:
         -------
         np.ndarray, complex64, shape (num_subbands, n_out)
             Row i is the baseband IQ of the i-th sub-band (ascending freq).
-            n_out = len(chunk) // N  (critically sampled).
+            n_out = len(chunk) // N  (critically sampled, oversample=1),
+            or approx 2*len(chunk) // N  (oversample=2).
         """
+        x = np.asarray(chunk, dtype=np.complex128)
         if self.oversample == 1:
-            return self._process_critical(np.asarray(chunk, dtype=np.complex128))
-        raise NotImplementedError("oversample=2 will be added in Task 2")
+            return self._process_critical(x)
+        if self.oversample == 2:
+            return self._process_oversampled(x)
+        raise ValueError(f"unsupported oversample={self.oversample}")
 
     # ------------------------------------------------------------------
     # Internal implementation
@@ -151,3 +157,61 @@ class PolyphaseChannelizer:
         Y = np.fft.fftshift(Y, axes=1)     # (nblocks, N)
 
         return Y.T.astype(np.complex64)    # (N, nblocks)
+
+    def _process_oversampled(self, x: np.ndarray) -> np.ndarray:
+        """2x oversampled (WOLA) polyphase DFT filterbank.
+
+        Commutator steps by H = N/2 (50% overlap) so each output block
+        sees a 50%-overlapping window of input.  A per-block WOLA phase
+        correction rotates channel k of block r by exp(-1j*pi*k*r), which
+        (under Task 1's fft convention) places a tone on the sub-band
+        boundary into BOTH adjacent channels with equal energy.
+
+        Convention note: Task 1 uses fft (analysis), no *N scaling.  The
+        brief's snippet uses ifft*N; since we stay with fft we negate the
+        exponent sign relative to the brief's exp(+1j*pi*k*r).
+        """
+        N, M = self.N, self.M
+        H = N // 2  # commutator hop = N/2 for 2x oversampling
+
+        # Prepend leftover from previous call
+        x = np.concatenate([self._tail, x])
+        nblocks = (len(x) - N) // H + 1 if len(x) >= N else 0
+        if nblocks <= 0:
+            self._tail = x.copy()
+            return np.zeros((N, 0), dtype=np.complex64)
+
+        consumed = nblocks * H
+        self._tail = x[consumed:].copy()
+
+        # Build overlapping blocks of length N stepped by H: shape (nblocks, N)
+        idx = np.arange(N)[None, :] + H * np.arange(nblocks)[:, None]
+        B = x[idx]   # (nblocks, N)
+
+        # Stack previous (M-1) state rows above current blocks for FIR
+        Xs = np.vstack([self._state_os, B])   # (M-1+nblocks, N)
+
+        # Polyphase FIR: same dot-product as _process_critical
+        #   F[r, k] = sum_{m=0}^{M-1}  poly[k, m] * Xs[r + (M-1-m), k]
+        F = np.zeros((nblocks, N), dtype=np.complex128)
+        for m in range(M):
+            F += self.poly[:, m][None, :] * Xs[(M - 1 - m):(M - 1 - m) + nblocks, :]
+
+        # Save last (M-1) rows for next call
+        if M > 1:
+            self._state_os = Xs[-(M - 1):, :].copy()
+
+        # N-point FFT — same fft (analysis) convention as _process_critical
+        Y = fft(F, axis=1)   # (nblocks, N)
+
+        # WOLA phase correction: block r stepped by H=N/2 acquires a
+        # linear phase ramp across channels.  Negated sign vs. brief's ifft
+        # snippet because we use fft (analysis direction).
+        r = np.arange(nblocks)[:, None]
+        k = np.arange(N)[None, :]
+        Y = Y * np.exp(-1j * np.pi * k * r)   # (nblocks, N)
+
+        # fftshift: map to ascending frequency order
+        Y = np.fft.fftshift(Y, axes=1)   # (nblocks, N)
+
+        return Y.T.astype(np.complex64)   # (N, nblocks)

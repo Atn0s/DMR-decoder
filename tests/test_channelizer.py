@@ -36,3 +36,25 @@ def test_tone_lands_in_expected_subband():
 def test_subband_rate():
     ch = PolyphaseChannelizer(8000.0, num_subbands=8, taps_per_phase=8, oversample=1)
     assert ch.subband_rate == pytest.approx(1000.0)
+
+
+def test_oversample_straddling_tone_in_two_subbands():
+    fs = 8000.0
+    N = 8
+    ch = PolyphaseChannelizer(fs, num_subbands=N, taps_per_phase=12, oversample=2)
+    centers = ch.subband_centers()
+    # place tone exactly on the boundary between two adjacent subbands
+    boundary = (centers[3] + centers[4]) / 2.0
+    x = _tone(boundary, fs, 16384)
+    sub = ch.process(x)
+    energies = np.mean(np.abs(sub) ** 2, axis=1)
+    order = np.argsort(energies)[::-1]
+    top_two = sorted(order[:2])
+    # boundary tone shows up in BOTH adjacent subbands (not split/lost)
+    assert top_two == [3, 4]
+    assert energies[order[1]] > 0.25 * energies[order[0]]
+
+
+def test_oversample_subband_rate_doubled():
+    ch = PolyphaseChannelizer(8000.0, num_subbands=8, taps_per_phase=8, oversample=2)
+    assert ch.subband_rate == pytest.approx(2000.0)

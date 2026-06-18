@@ -82,6 +82,8 @@ class PolyphaseChannelizer:
         self._state = np.zeros((self.M - 1, self.N), dtype=np.complex128)
         # State for oversampled path (same shape, separate buffer)
         self._state_os = np.zeros((self.M - 1, self.N), dtype=np.complex128)
+        # Global block counter for WOLA phase continuity across process() calls
+        self._block_count_os = 0
 
     def subband_centers(self) -> np.ndarray:
         """Return sub-band centre frequencies in Hz, ascending, length N.
@@ -207,9 +209,11 @@ class PolyphaseChannelizer:
         # WOLA phase correction: block r stepped by H=N/2 acquires a
         # linear phase ramp across channels.  Negated sign vs. brief's ifft
         # snippet because we use fft (analysis direction).
-        r = np.arange(nblocks)[:, None]
+        # Use global block offset so phase is continuous across process() calls.
+        r = (self._block_count_os + np.arange(nblocks))[:, None]
         k = np.arange(N)[None, :]
         Y = Y * np.exp(-1j * np.pi * k * r)   # (nblocks, N)
+        self._block_count_os += nblocks
 
         # fftshift: map to ascending frequency order
         Y = np.fft.fftshift(Y, axes=1)   # (nblocks, N)

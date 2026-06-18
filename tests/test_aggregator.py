@@ -106,3 +106,21 @@ def test_duplicate_terminator_in_overlap_no_phantom():
     # The legitimate record was opened at window 0 and has the right src/dst
     assert closed[0].src == 1 and closed[0].dst == 2
     assert closed[0].start_window == 0
+
+
+def test_absolute_rf_key_merges_by_rf_not_subband_offset():
+    from realtime.aggregator import SessionAggregator
+    agg = SessionAggregator()
+    # same call seen in two adjacent sub-bands (straddling): different sub-band
+    # offsets but SAME absolute RF -> must merge into ONE call.
+    pdu_a = {"type": "LC_HEADER", "src": 1, "dst": 2, "flco": "GroupVoiceChannelUser",
+             "ts": 0, "extra": {}, "raw_bits": b"\x00" * 33,
+             "_fo_hz": +200000.0, "_rf_hz": 435_000_000.0, "_window_id": 0}
+    pdu_b = {"type": "LATE_ENTRY", "src": 1, "dst": 2, "flco": "GroupVoiceChannelUser",
+             "ts": 0, "extra": {}, "raw_bits": b"\x00" * 33,
+             "_fo_hz": -180000.0, "_rf_hz": 435_001_000.0, "_window_id": 1}
+    agg.feed(pdu_a)
+    agg.feed(pdu_b)
+    calls = agg.active_calls()
+    assert len(calls) == 1
+    assert abs(calls[0].fo_hz - 435_000_000.0) < 5000.0

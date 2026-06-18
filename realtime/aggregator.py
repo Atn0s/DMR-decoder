@@ -31,7 +31,10 @@ class SessionAggregator:
         self._pending_closed: list[CallRecord] = []
 
     def _key(self, pdu: dict) -> tuple:
-        bucket = round(pdu.get("_fo_hz", 0.0) / self.fo_bucket_hz) * self.fo_bucket_hz
+        # Prefer absolute RF frequency (wideband channelizer path); fall back to
+        # sub-band-relative offset for the legacy narrowband pipeline/tests.
+        freq = pdu.get("_rf_hz", pdu.get("_fo_hz", 0.0))
+        bucket = round(freq / self.fo_bucket_hz) * self.fo_bucket_hz
         return (bucket, pdu["src"], pdu["dst"])
 
     def feed(self, pdu: dict) -> None:

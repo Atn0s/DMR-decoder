@@ -28,6 +28,15 @@ def test_wideband_two_channels_different_subbands(tmp_path):
         f"No voice call below 435 MHz; got RFs: {[c.fo_hz for c in voice]}"
     assert any(c.fo_hz > 435e6 for c in voice), \
         f"No voice call above 435 MHz; got RFs: {[c.fo_hz for c in voice]}"
+    # No phantom calls: every voice call must be within 0.3 MHz of one of the two
+    # real signal RFs (433.2 MHz and 436.8 MHz).  The owning-sub-band guard
+    # (nearest-center rule) eliminates alias detections; this assertion pins that
+    # they do not come back.
+    real_rfs = [433.2e6, 436.8e6]
+    for c in voice:
+        assert any(abs(c.fo_hz - rf) <= 0.3e6 for rf in real_rfs), \
+            f"Spurious phantom call at {c.fo_hz/1e6:.3f} MHz (not within 0.3 MHz of 433.2 or 436.8); " \
+            f"all RFs: {[round(x.fo_hz/1e6, 3) for x in voice]}"
 
 
 def test_wideband_returns_list_on_noise(tmp_path):

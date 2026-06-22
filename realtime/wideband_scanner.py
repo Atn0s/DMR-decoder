@@ -33,6 +33,18 @@ class WidebandScanner:
         # one detector per sub-band (each holds its own frequency state table)
         self._detectors = [Detector(sample_rate=self.subband_rate)
                            for _ in range(num_subbands)]
+        # Owning-sub-band half-width: fs/N/2 = subband_rate/(2*oversample).
+        # A uniform polyphase filterbank tiles the spectrum so that every frequency
+        # belongs to exactly one "owner" — the sub-band whose center is nearest.
+        # The primary (owning) region of sub-band i is the ±half-width interval
+        # around its center.  Oversampled capture extends each sub-band's CAPTURED
+        # bandwidth beyond this half-width into the neighbour's primary region, so
+        # a real signal at fo_rel in [±half_width, ±full_bw) is also visible as an
+        # alias in the adjacent sub-band.  We skip those alias detections here; the
+        # signal is decoded by its true owner (the adjacent sub-band) where fo_rel
+        # is within ±half_width.  This is NOT a dead zone: every real frequency has
+        # exactly one owner and is decoded exactly once with full SNR margin.
+        self._owning_halfwidth_hz = self.subband_rate / (2 * oversample)
 
     def _read_all(self) -> np.ndarray:
         chunks = []
@@ -86,10 +98,22 @@ class WidebandScanner:
                 win = subbands[i, start:stop]
                 tasks = self._detectors[i].process_window(win, wid)
                 for (iq, fo_rel, w) in tasks:
-                    # No fo_rel guard: 2x oversampling means overlap-region signals
-                    # legitimately appear in adjacent sub-bands with fo_rel up to
-                    # ±full_bw.  The SessionAggregator merges same-RF detections from
-                    # both sub-bands into one CallRecord via fo_bucket_hz keying.
+                    # Owning-sub-band guard (nearest-center / primary-region rule).
+                    # Each sub-band owns the ±_owning_halfwidth_hz interval around
+                    # its center.  With oversampling, the captured bandwidth is wider,
+                    # so a real signal can also be detected in an adjacent sub-band
+                    # (alias) with |fo_rel| > _owning_halfwidth_hz.  Those alias
+                    # detections estimate a slightly different fo_rel there, so
+                    # _rf_hz resolves to a WRONG absolute RF that the aggregator
+                    # cannot merge with the true call — they survive as phantoms.
+                    # Skipping detections outside the primary region eliminates the
+                    # phantoms.  This is NOT a dead zone: the real signal is in the
+                    # PRIMARY region of the adjacent sub-band (its true owner), where
+                    # |fo_rel| < _owning_halfwidth_hz and it IS decoded normally.
+                    # Primary regions of a uniform filterbank tile the band with no
+                    # gaps, so every real signal is decoded exactly once.
+                    if abs(fo_rel) > self._owning_halfwidth_hz:
+                        continue
                     pdus = decode_window(iq, fo_rel, w, self.subband_rate)
                     rf = self.center_hz + float(self.centers[i]) + fo_rel
                     for pdu in pdus:

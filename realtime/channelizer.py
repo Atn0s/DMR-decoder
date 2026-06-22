@@ -56,13 +56,19 @@ class PolyphaseChannelizer:
         self.M = int(taps_per_phase)
         self.oversample = int(oversample)
 
-        # Prototype lowpass: normalised cutoff = 1/N (critically sampled)
-        # or 2/N (2x oversampled) in units of Nyquist.
-        # Clamped to 0.99 to keep firwin well-conditioned.
-        cutoff = min(0.99, self.oversample / self.N)
+        # Prototype lowpass: normalised cutoff = 1/N in units of Nyquist.
+        # This makes the per-sub-band passband ≈ the owning half-width fs/(2N)
+        # for BOTH the critically-sampled and the 2x-oversampled paths.  The
+        # oversampling factor changes the COMMUTATOR HOP (N vs N/2) and the
+        # output rate, NOT the prototype bandwidth — using 2/N here was the
+        # cause of the decimation-aliasing phantoms (no stopband before the
+        # fold frequency).  Clamped to 0.99 to keep firwin well-conditioned.
+        cutoff = min(0.99, 1.0 / self.N)
         proto = firwin(self.N * self.M, cutoff).astype(np.float64)
 
-        # poly[k, m] = proto[m*N + k]  →  shape (N, M)
+        # Flat prototype (length N*M) for the WOLA oversampled path.
+        self.proto = proto
+        # poly[k, m] = proto[m*N + k]  →  shape (N, M); used by critical path.
         self.poly = proto.reshape(self.M, self.N).T.copy()
 
         # Sub-band output rate
@@ -80,10 +86,10 @@ class PolyphaseChannelizer:
         self._tail = np.zeros(0, dtype=np.complex128)
         # Previous (M-1) block-rows, one row per block of N samples processed
         self._state = np.zeros((self.M - 1, self.N), dtype=np.complex128)
-        # State for oversampled path (same shape, separate buffer)
-        self._state_os = np.zeros((self.M - 1, self.N), dtype=np.complex128)
-        # Global block counter for WOLA phase continuity across process() calls
-        self._block_count_os = 0
+        # WOLA oversampled path: leftover samples that did not fill a frame,
+        # and a global frame counter for the circular-shift origin continuity.
+        self._buf_os = np.zeros(0, dtype=np.complex128)
+        self._frame_count_os = 0
 
     def subband_centers(self) -> np.ndarray:
         """Return sub-band centre frequencies in Hz, ascending, length N.
@@ -161,61 +167,67 @@ class PolyphaseChannelizer:
         return Y.T.astype(np.complex64)    # (N, nblocks)
 
     def _process_oversampled(self, x: np.ndarray) -> np.ndarray:
-        """2x oversampled (WOLA) polyphase DFT filterbank.
+        """2x oversampled (WOLA) polyphase DFT analysis filterbank.
 
-        Commutator steps by H = N/2 (50% overlap) so each output block
-        sees a 50%-overlapping window of input.  A per-block WOLA phase
-        correction rotates channel k of block r by exp(-1j*pi*k*r), which
-        (under Task 1's fft convention) places a tone on the sub-band
-        boundary into BOTH adjacent channels with equal energy.
+        Weighted OverLap-Add structure (the standard correct construction):
+        for each frame (hop H = N/2) take L = N*M samples, weight by the flat
+        prototype, fold the M length-N segments by summation, apply a circular
+        shift to track the sliding window origin, then an N-point FFT yields the
+        N sub-band samples for that frame.
 
-        Convention note: Task 1 uses fft (analysis), no *N scaling.  The
-        brief's snippet uses ifft*N; since we stay with fft we negate the
-        exponent sign relative to the brief's exp(+1j*pi*k*r).
+            frame_p = x[p*H : p*H + L] * proto      # weight
+            u_p     = sum_{m=0}^{M-1} frame_p[m*N : (m+1)*N]   # fold to length N
+            u_p     = roll(u_p, -((p*H) mod N))     # sliding-origin alignment
+            X_p     = fft(u_p)                       # N channels
+
+        Output rate = fs/N * 2 (hop is N/2).  Channel order is fftshifted to
+        ascending frequency, matching the critical path and subband_centers().
+
+        The earlier implementation fed N/2-stepped overlapping block-rows into
+        an N-spaced polyphase dot product (a mismatched stride), which produced
+        decimation-alias images and >0 dB out-of-band gain.  This WOLA form is
+        the correct oversampled analysis bank and rejects those aliases.
         """
         N, M = self.N, self.M
-        H = N // 2  # commutator hop = N/2 for 2x oversampling
+        L = N * M
+        H = N // 2  # hop = N/2 for 2x oversampling
 
         # Prepend leftover from previous call
-        x = np.concatenate([self._tail, x])
-        nblocks = (len(x) - N) // H + 1 if len(x) >= N else 0
-        if nblocks <= 0:
-            self._tail = x.copy()
+        x = np.concatenate([self._buf_os, x])
+        nframes = (len(x) - L) // H + 1 if len(x) >= L else 0
+        if nframes <= 0:
+            self._buf_os = x.copy()
             return np.zeros((N, 0), dtype=np.complex64)
 
-        consumed = nblocks * H
-        self._tail = x[consumed:].copy()
-
-        # Build overlapping blocks of length N stepped by H: shape (nblocks, N)
-        idx = np.arange(N)[None, :] + H * np.arange(nblocks)[:, None]
-        B = x[idx]   # (nblocks, N)
-
-        # Stack previous (M-1) state rows above current blocks for FIR
-        Xs = np.vstack([self._state_os, B])   # (M-1+nblocks, N)
-
-        # Polyphase FIR: same dot-product as _process_critical
-        #   F[r, k] = sum_{m=0}^{M-1}  poly[k, m] * Xs[r + (M-1-m), k]
-        F = np.zeros((nblocks, N), dtype=np.complex128)
+        # Build the folded length-N frames WITHOUT materialising the full
+        # (nframes, L) matrix — that would be M times larger and OOMs on a
+        # whole-capture channelize.  Accumulate over the M prototype segments:
+        #   u[p, :] = sum_{m} proto[m*N:(m+1)*N] * x[p*H + m*N : p*H + m*N + N]
+        # Each segment contributes an (nframes, N) view, so peak memory is
+        # O(nframes*N) instead of O(nframes*L).
+        base = H * np.arange(nframes)[:, None]            # (nframes, 1)
+        cols = np.arange(N)[None, :]                       # (1, N)
+        u = np.zeros((nframes, N), dtype=np.complex128)
         for m in range(M):
-            F += self.poly[:, m][None, :] * Xs[(M - 1 - m):(M - 1 - m) + nblocks, :]
+            seg = x[base + cols + m * N]                   # (nframes, N)
+            u += self.proto[m * N:(m + 1) * N][None, :] * seg
 
-        # Save last (M-1) rows for next call
-        if M > 1:
-            self._state_os = Xs[-(M - 1):, :].copy()
+        # Sliding-origin circular shift: frame p starts at sample p*H, so the
+        # DFT origin must be rotated by -((p*H) mod N) to keep phase continuous.
+        f = self._frame_count_os + np.arange(nframes)
+        shifts = (f * H) % N
+        # Apply per-row circular shift via advanced indexing
+        col = (np.arange(N)[None, :] + shifts[:, None]) % N
+        u = np.take_along_axis(u, col, axis=1)
 
-        # N-point FFT — same fft (analysis) convention as _process_critical
-        Y = fft(F, axis=1)   # (nblocks, N)
+        # N-point FFT across the folded branches → N sub-band samples per frame
+        Y = fft(u, axis=1)                               # (nframes, N)
 
-        # WOLA phase correction: block r stepped by H=N/2 acquires a
-        # linear phase ramp across channels.  Negated sign vs. brief's ifft
-        # snippet because we use fft (analysis direction).
-        # Use global block offset so phase is continuous across process() calls.
-        r = (self._block_count_os + np.arange(nblocks))[:, None]
-        k = np.arange(N)[None, :]
-        Y = Y * np.exp(-1j * np.pi * k * r)   # (nblocks, N)
-        self._block_count_os += nblocks
+        # Advance streaming state
+        self._frame_count_os += nframes
+        self._buf_os = x[nframes * H:].copy()
 
         # fftshift: map to ascending frequency order
-        Y = np.fft.fftshift(Y, axes=1)   # (nblocks, N)
+        Y = np.fft.fftshift(Y, axes=1)                   # (nframes, N)
 
-        return Y.T.astype(np.complex64)   # (N, nblocks)
+        return Y.T.astype(np.complex64)                  # (N, nframes)

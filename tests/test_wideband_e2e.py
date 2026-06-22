@@ -39,6 +39,26 @@ def test_wideband_two_channels_different_subbands(tmp_path):
             f"all RFs: {[round(x.fo_hz/1e6, 3) for x in voice]}"
 
 
+def test_wideband_cli_runs(tmp_path, capsys):
+    import os
+    from utils.synthesis import synthesize_wideband_grid
+    from realtime.scanner_rt import run_wideband_cli
+    if not os.path.exists("data/dmr_1_78125.rawiq"):
+        pytest.skip("source narrowband file not present")
+    out = str(tmp_path / "cli_wb.rawiq")
+    synthesize_wideband_grid([(-1_800_000.0, "dmr_1_78125.rawiq")],
+                             out, fs_out=5e6, dur_sec=10.0, data_dir="data")
+
+    class Args:
+        path = out
+        fs = 5e6
+        center = 435e6
+        nsub = 4
+        oversample = 2
+    calls = run_wideband_cli(Args())
+    assert isinstance(calls, list)
+
+
 def test_wideband_returns_list_on_noise(tmp_path):
     """Pure-noise wideband file: pipeline runs clean, returns a list (no crash)."""
     path = str(tmp_path / "noise.rawiq")

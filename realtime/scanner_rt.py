@@ -6,6 +6,8 @@ from realtime.detector import Detector
 from realtime.aggregator import SessionAggregator, CallRecord
 from realtime.worker import decode_window
 from realtime.iq_source import FileIQSource
+from realtime.wideband_source import FileWidebandSource
+from realtime.wideband_scanner import WidebandScanner
 
 
 class RealtimeScanner:
@@ -111,6 +113,24 @@ class RealtimeScanner:
         return all_closed
 
 
+def run_wideband_cli(args) -> list:
+    """Run a wideband channelizer scan from parsed CLI args. Returns CallRecords."""
+    src = FileWidebandSource(args.path, sample_rate=args.fs,
+                             center_hz=getattr(args, "center", 0.0),
+                             chunk_samples=int(args.fs), throttle=False)
+    scanner = WidebandScanner(src, num_subbands=args.nsub,
+                              oversample=args.oversample)
+
+    def on_call(c):
+        print(f"[CALL] RF={c.fo_hz/1e6:.4f}MHz SRC={c.src} DST={c.dst} "
+              f"FLCO={c.flco} closed_by={c.closed_by} "
+              f"windows={c.start_window}-{c.end_window}")
+
+    calls = scanner.run(on_call=on_call)
+    print(f"=== total wideband calls: {len(calls)} ===")
+    return calls
+
+
 def _detect_sample_rate(path: str) -> float | None:
     """Reuse scanner.detect_sample_rate to infer fs from filename (e.g. _78125.rawiq)."""
     import scanner
@@ -142,10 +162,30 @@ def main():
                         help="use a multiprocessing worker pool (default: serial)")
     parser.add_argument("--chunk", type=int, default=None,
                         help="acquisition chunk size in samples (default: ~1s of data)")
+    parser.add_argument("--wideband", action="store_true",
+                        help="run wideband channelizer scan (PFB front-end)")
+    parser.add_argument("--center", type=float, default=0.0,
+                        help="absolute RF center of the captured band, Hz")
+    parser.add_argument("--nsub", type=int, default=32,
+                        help="number of channelizer sub-bands (default 32)")
+    parser.add_argument("--oversample", type=int, default=2,
+                        help="channelizer oversample factor (default 2)")
     args = parser.parse_args()
 
     if not os.path.exists(args.path):
         parser.error(f"file not found: {args.path}")
+
+    if args.wideband:
+        if args.fs is None:
+            fs = _detect_sample_rate(args.path)
+            if fs is None:
+                parser.error("could not infer sample rate; pass --fs HZ")
+            args.fs = fs
+        print(f"=== Wideband channelizer scan: {args.path} "
+              f"(fs={args.fs/1e6:.3f} MHz, center={args.center/1e6:.3f} MHz, "
+              f"nsub={args.nsub}, oversample={args.oversample}) ===")
+        run_wideband_cli(args)
+        return
 
     fs = args.fs or _detect_sample_rate(args.path)
     if fs is None:

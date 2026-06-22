@@ -119,7 +119,14 @@ class WidebandScanner:
                     for pdu in pdus:
                         pdu["_rf_hz"] = rf
                         self.aggregator.feed(pdu)
-                closed = self.aggregator.expire(wid, self._detectors[i].closed_channels())
+                # Detector.closed_channels() returns sub-band-RELATIVE offsets,
+                # but call records are keyed on ABSOLUTE RF (_rf_hz).  Map the
+                # closed offsets to absolute RF so the detector-driven close path
+                # matches the aggregator's bucket keys (else it never fires and
+                # calls only close via timeout).
+                closed_rf = [self.center_hz + float(self.centers[i]) + fo
+                             for fo in self._detectors[i].closed_channels()]
+                closed = self.aggregator.expire(wid, closed_rf)
                 for rec in closed:
                     all_closed.append(rec)
                     if on_call:

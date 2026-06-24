@@ -5,6 +5,7 @@ data/
 # Generated images and output
 *.png
 output/
+DMR_signal/
 
 # Python bytecode cache
 __pycache__/

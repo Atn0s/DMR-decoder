@@ -9,7 +9,8 @@ class CallRecord:
     src: int
     dst: int
     flco: str
-    start_window: int
+    fid: str = ""
+    start_window: int = 0
     end_window: int | None = None
     voice_raw: list = field(default_factory=list)
     closed_by: str = ""
@@ -60,7 +61,8 @@ class SessionAggregator:
         if rec is None:
             rec = CallRecord(
                 fo_hz=key[0], src=pdu["src"], dst=pdu["dst"],
-                flco=pdu.get("flco", ""), start_window=wid, last_window=wid)
+                flco=pdu.get("flco", ""), fid=pdu.get("fid", ""),
+                start_window=wid, last_window=wid)
             self._calls[key] = rec
         rec.last_window = max(rec.last_window, wid)
 

@@ -54,6 +54,7 @@ def _decode_lc_or_terminator(ba264: bitarray, info196: bitarray,
         "dst":      dst,
         "ts":       0,
         "flco":     flc.full_link_control_opcode.name,
+        "fid":      flc.feature_set_id.name,
         "extra":    {"color_code": color_code},
         "raw_bits": ba264.tobytes(),
     }
@@ -72,6 +73,7 @@ def _decode_csbk(ba264: bitarray, info196: bitarray, color_code: int) -> dict | 
         "dst":     csbk.target_address or 0,
         "ts":      0,
         "flco":    csbk.csbko.name,
+        "fid":     csbk.feature_set.name,
         "extra":   {"color_code": color_code, "last_block": csbk.last_block},
         "raw_bits": ba264.tobytes(),
     }
@@ -150,6 +152,7 @@ class LateEntryCollector:
             "dst":     dst,
             "ts":      0,
             "flco":    flc.full_link_control_opcode.name,
+            "fid":     flc.feature_set_id.name,
             "extra":   {"cs5_ok": cs5_ok},
             "raw_bits": last_ba264.tobytes(),
         }

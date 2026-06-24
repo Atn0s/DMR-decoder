@@ -123,7 +123,7 @@ def run_wideband_cli(args) -> list:
 
     def on_call(c):
         print(f"[CALL] RF={c.fo_hz/1e6:.4f}MHz SRC={c.src} DST={c.dst} "
-              f"FLCO={c.flco} closed_by={c.closed_by} "
+              f"FLCO={c.flco} FID={c.fid} closed_by={c.closed_by} "
               f"windows={c.start_window}-{c.end_window}")
 
     calls = scanner.run(on_call=on_call)
@@ -201,7 +201,7 @@ def main():
 
     def on_call(c: CallRecord):
         fo_str = f"fo={c.fo_hz/1e3:+.1f}kHz " if c.fo_hz else ""
-        print(f"[CALL] {fo_str}SRC={c.src} DST={c.dst} FLCO={c.flco} "
+        print(f"[CALL] {fo_str}SRC={c.src} DST={c.dst} FLCO={c.flco} FID={c.fid} "
               f"closed_by={c.closed_by} windows={c.start_window}-{c.end_window}")
 
     calls = rt.run(on_call=on_call)

@@ -28,3 +28,24 @@ def test_decode_dmr_adds_protocol_key(monkeypatch):
 
     assert result[0]["protocol"] == "DMR"
     assert result[0]["type"] == "CSBK"
+
+
+def test_print_results_accepts_p25_nid(capsys):
+    import scanner
+
+    scanner._print_results([
+        {
+            "protocol": "P25",
+            "type": "P25_NID",
+            "src": 0,
+            "dst": 0,
+            "flco": "LDU1",
+            "fid": "",
+            "extra": {"nac": 0x293, "duid": 0x5},
+        }
+    ])
+
+    out = capsys.readouterr().out
+    assert "P25_NID" in out
+    assert "PROTO=P25" in out
+    assert "NAC=0x293" in out

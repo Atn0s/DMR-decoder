@@ -184,8 +184,13 @@ def scan_file(path: str, freq_list: list[float] | None = None,
 def _print_results(pdus: list[dict]) -> None:
     for p in pdus:
         fo_str = f" (fo={p['_fo_hz']/1e3:+.1f}kHz)" if "_fo_hz" in p else ""
-        print(f"[{p['type']:<12}] SRC={p['src']} DST={p['dst']} FLCO={p['flco']} "
-              f"FID={p.get('fid','')}{fo_str}")
+        proto = p.get("protocol", "DMR")
+        extra = p.get("extra", {})
+        nac_str = f" NAC=0x{extra['nac']:03X}" if proto == "P25" and "nac" in extra else ""
+        print(
+            f"[{p['type']:<12}] PROTO={proto} SRC={p['src']} DST={p['dst']} "
+            f"FLCO={p['flco']} FID={p.get('fid','')}{nac_str}{fo_str}"
+        )
 
 
 def _write_json(pdus: list[dict], path: str) -> None:

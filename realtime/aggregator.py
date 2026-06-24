@@ -39,6 +39,9 @@ class SessionAggregator:
         return (bucket, pdu["src"], pdu["dst"])
 
     def feed(self, pdu: dict) -> None:
+        if pdu.get("protocol", "DMR") != "DMR":
+            return
+
         key = self._key(pdu)
         wid = pdu.get("_window_id", 0)
         ptype = pdu["type"]

@@ -18,6 +18,24 @@ def test_lc_header_opens_session():
     assert calls[0].start_window == 0
 
 
+def test_p25_nid_does_not_open_session_or_expire_closed_call():
+    agg = SessionAggregator()
+
+    agg.feed({
+        "protocol": "P25",
+        "type": "P25_NID",
+        "src": 0,
+        "dst": 0,
+        "nac": 0x293,
+        "duid": 0x5,
+        "_fo_hz": 150000.0,
+        "_window_id": 0,
+    })
+
+    assert agg.active_calls() == []
+    assert agg.expire(current_window=CALL_TIMEOUT_WINDOWS + 1, closed_fos=[]) == []
+
+
 def test_duplicate_signalling_deduped():
     agg = SessionAggregator()
     agg.feed(_pdu("LC_HEADER", wid=0))

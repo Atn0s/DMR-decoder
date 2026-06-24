@@ -75,14 +75,10 @@ def _recover_stepped_burst(y: np.ndarray, anchor: int, j: int, ph: float, polari
     return adaptive_slice_bits(seg)
 
 
-def _decode_loop(y: np.ndarray) -> list[dict]:
-    """Shared decode loop: sync detection, dedup, burst recovery, and PDU decoding.
+def _decode_dmr_loop(y: np.ndarray) -> list[dict]:
+    """Existing DMR-only decode loop.
 
-    Voice Sync positions are Burst A anchors. Subsequent bursts B-F are stepped
-    at fixed BURST_STRIDE without re-running NCC, so LateEntryCollector can
-    assemble the 4 EMB fragments (First+Cont+Cont+Last) it needs.
-    Each superframe gets its own LateEntryCollector to prevent cross-superframe
-    state pollution.
+    This is the old _decode_loop body. Keep all DMR behavior unchanged.
     """
     positions = find_sync_positions(y)
     results = []
@@ -115,6 +111,12 @@ def _decode_loop(y: np.ndarray) -> list[dict]:
                 results.append(dict(pdu))
 
     return results
+
+
+def _decode_loop(y: np.ndarray) -> list[dict]:
+    import protocols
+
+    return protocols.decode_all(y)
 
 
 def _process_candidate(iq: np.ndarray, fo: float, fs_in: float) -> list[dict]:

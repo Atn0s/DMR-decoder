@@ -1,12 +1,16 @@
 import numpy as np
+from bitarray import bitarray
 
 from p25.constants import FRAME_SYNC_SYMBOLS, dibits_to_symbols
 from p25.decoder import decode
+from p25.fec import bch_63_16_encode
 
 
 def nid_symbols(nac: int, duid: int) -> np.ndarray:
-    bits = f"{nac:012b}{duid:04b}" + "0" * 48
-    return dibits_to_symbols(bits)
+    info = bitarray(f"{nac:012b}{duid:04b}")
+    logical = bch_63_16_encode(info)
+    air = logical[:22] + bitarray("00") + logical[22:]
+    return dibits_to_symbols(air.to01())
 
 
 def test_decode_emits_p25_nid_pdu_from_synthetic_y():
@@ -29,6 +33,12 @@ def test_decode_emits_p25_nid_pdu_from_synthetic_y():
     assert pdu["extra"]["nac"] == 0x293
     assert pdu["extra"]["duid"] == 0x7
     assert pdu["extra"]["duid_name"] == "TSBK"
+    assert pdu["extra"]["pdu_type"] == "P25_TSBK"
+    assert pdu["extra"]["frame_category"] == "trunking_control"
+    assert pdu["extra"]["is_voice"] is False
+    assert pdu["extra"]["is_control"] is True
+    assert pdu["extra"]["is_terminator"] is False
+    assert pdu["extra"]["has_link_control"] is False
     assert "raw_bits" in pdu
     assert isinstance(pdu["raw_bits"], bytes)
 

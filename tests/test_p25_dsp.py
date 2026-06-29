@@ -1,7 +1,9 @@
 import numpy as np
 
-from p25.constants import FRAME_SYNC_SYMBOLS
-from p25.dsp import recover_symbols_from_fs, slice_symbols_to_bits
+from bitarray import bitarray
+
+from p25.constants import FRAME_SYNC_BITS, FRAME_SYNC_SYMBOLS
+from p25.dsp import extract_nid_bits, recover_symbols_from_fs, slice_symbols_to_bits
 from p25.sync import P25SyncCandidate
 
 
@@ -64,3 +66,10 @@ def test_recover_symbols_from_fs_returns_none_for_shorter_than_frame_sync():
 def test_slice_symbols_to_bits_uses_p25_dibit_mapping():
     symbols = np.array([1, 3, -1, -3], dtype=float)
     assert slice_symbols_to_bits(symbols).to01() == "00011011"
+
+
+def test_extract_nid_bits_skips_status_dibit_inside_header():
+    logical = bitarray("0" * 22 + "1" * 42, endian="big")
+    fs_nid = bitarray(FRAME_SYNC_BITS + logical[:22].to01() + "01" + logical[22:].to01())
+
+    assert extract_nid_bits(fs_nid).to01() == logical.to01()

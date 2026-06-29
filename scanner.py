@@ -169,8 +169,13 @@ def scan_file(path: str, freq_list: list[float] | None = None,
     seen_pdus: set[tuple] = set()
     unique: list[dict] = []
     for pdu in all_pdus:
-        fo_bucket = round(pdu.get("_fo_hz", 0) / 5000) * 5000
-        k = (pdu["src"], pdu["dst"], pdu["type"], fo_bucket)
+        if pdu.get("protocol") == "P25":
+            extra = pdu.get("extra", {})
+            frame_bucket = round(extra.get("fs_start", 0) / 8640)
+            k = ("P25", extra.get("nac"), pdu["type"], frame_bucket)
+        else:
+            fo_bucket = round(pdu.get("_fo_hz", 0) / 5000) * 5000
+            k = ("DMR", pdu["src"], pdu["dst"], pdu["type"], fo_bucket)
         if k not in seen_pdus:
             seen_pdus.add(k)
             unique.append(pdu)
@@ -185,12 +190,99 @@ def _print_results(pdus: list[dict]) -> None:
     for p in pdus:
         fo_str = f" (fo={p['_fo_hz']/1e3:+.1f}kHz)" if "_fo_hz" in p else ""
         proto = p.get("protocol", "DMR")
+        if proto == "P25":
+            print(_format_p25_result(p, fo_str))
+            continue
         extra = p.get("extra", {})
-        nac_str = f" NAC=0x{extra['nac']:03X}" if proto == "P25" and "nac" in extra else ""
         print(
             f"[{p['type']:<12}] PROTO={proto} SRC={p['src']} DST={p['dst']} "
-            f"FLCO={p['flco']} FID={p.get('fid','')}{nac_str}{fo_str}"
+            f"FLCO={p['flco']} FID={p.get('fid','')}{fo_str}"
         )
+
+
+def _format_p25_result(pdu: dict, fo_str: str = "") -> str:
+    extra = pdu.get("extra", {})
+    prefix = f"[{pdu['type']:<12}] PROTO=P25"
+    nac = f" NAC=0x{extra['nac']:03X}" if "nac" in extra else ""
+    detail = _p25_detail(pdu)
+
+    if pdu.get("type") == "P25_HDU":
+        return f"{prefix} FRAME=HDU{nac}{detail}{fo_str}"
+
+    if pdu.get("type") == "P25_LDU1":
+        call_type = extra.get("call_type", "")
+        if call_type == "group":
+            party = f" SRC={pdu.get('src', 0)} TGID={extra.get('tgid', 0)}"
+        elif call_type == "unit_to_unit":
+            party = f" SRC={pdu.get('src', 0)} DEST={pdu.get('dst', 0)}"
+        else:
+            party = ""
+        return f"{prefix} FRAME=LDU1{party}{nac}{detail}{fo_str}"
+
+    if pdu.get("type") == "P25_LDU2":
+        return f"{prefix} FRAME=LDU2{nac}{detail}{fo_str}"
+
+    if pdu.get("type") == "P25_CALL":
+        call = "GROUP" if pdu.get("flco") == "GROUP" else "UNIT"
+        if call == "GROUP":
+            party = f" SRC={pdu.get('src', 0)} TGID={pdu.get('dst', 0)}"
+        else:
+            party = f" SRC={pdu.get('src', 0)} DEST={pdu.get('dst', 0)}"
+        duration = f" DUR={extra.get('duration_s')}s" if "duration_s" in extra else ""
+        ldu_count = f" LDUS={extra.get('ldu_count')}" if "ldu_count" in extra else ""
+        return f"{prefix} CALL={call}{party}{nac}{duration}{ldu_count}{fo_str}"
+
+    frame = pdu.get("flco", extra.get("duid_name", ""))
+    return f"{prefix} FRAME={frame}{nac}{detail}{fo_str}"
+
+
+def _p25_detail(pdu: dict) -> str:
+    extra = pdu.get("extra", {})
+    base = (
+        f" DUID=0x{extra['duid']:X} BCH={'OK' if extra.get('valid_bch') else 'FAIL'}"
+        f" CORR={int(bool(extra.get('corrected')))}"
+        if "duid" in extra
+        else ""
+    )
+    if pdu.get("type") == "P25_HDU":
+        return (
+            f"{base} MI=0x{extra.get('mi', 0):018X}"
+            f" MFID=0x{extra.get('hdu_mfid', 0):02X}"
+            f" ALGID=0x{extra.get('algid', 0):02X}"
+            f" KID=0x{extra.get('kid', 0):04X}"
+            f" TGID={extra.get('hdu_tgid', 0)}"
+        )
+    if pdu.get("type") == "P25_LDU1":
+        call_type = extra.get("call_type", "")
+        if call_type == "group":
+            lc_fields = (
+                f" LCW16=0x{extra.get('lc_info', 0):04X}"
+                f" EMERGENCY={int(bool(extra.get('lc_emergency')))}"
+                f" RESERVED{extra.get('lc_reserved_bits', 0)}=0x{extra.get('lc_reserved', 0):04X}"
+            )
+        elif call_type == "unit_to_unit":
+            lc_fields = (
+                f" LCW16=0x{extra.get('lc_info', 0):04X}"
+                f" RESERVED{extra.get('lc_reserved_bits', 0)}=0x{extra.get('lc_reserved', 0):02X}"
+            )
+        else:
+            lc_fields = (
+                f" LCW16=0x{extra.get('lc_info', 0):04X}"
+                f" RESERVED{extra.get('lc_reserved_bits', 0)}=0x{extra.get('lc_reserved', 0):04X}"
+            )
+        return (
+            f"{base} LCF=0x{extra.get('lco', 0):02X}"
+            f" MFID=0x{extra.get('mfid', 0):02X}"
+            f" CALL={call_type}"
+            f"{lc_fields}"
+        )
+    if pdu.get("type") == "P25_LDU2":
+        return (
+            f"{base} ES_MI=0x{extra.get('es_mi', 0):018X}"
+            f" ES_ALGID=0x{extra.get('es_algid', 0):02X}"
+            f" ES_KID=0x{extra.get('es_kid', 0):04X}"
+        )
+    return base
 
 
 def _write_json(pdus: list[dict], path: str) -> None:

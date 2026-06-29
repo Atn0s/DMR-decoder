@@ -1,5 +1,6 @@
 from bitarray import bitarray
 
+from p25.fec import bch_63_16_encode
 from p25.nid import P25NID, decode_nid
 
 
@@ -18,7 +19,7 @@ def test_decode_nid_extracts_nac_and_duid_schema():
     assert nid.duid == 0x5
     assert nid.duid_name == "LDU1"
     assert nid.corrected is False
-    assert nid.valid_bch is None
+    assert nid.valid_bch is False
 
 
 def test_decode_nid_rejects_wrong_length():
@@ -34,3 +35,12 @@ def test_decode_nid_rejects_wrong_length():
 def test_decode_nid_names_unknown_duid():
     nid = decode_nid(make_nid_bits(0x123, 0x2))
     assert nid.duid_name == "UNKNOWN_0x2"
+
+
+def test_decode_nid_validates_bch_codeword():
+    info = bitarray("0010100100110111")
+    nid = decode_nid(bch_63_16_encode(info))
+
+    assert nid.nac == 0x293
+    assert nid.duid == 0x7
+    assert nid.valid_bch is True

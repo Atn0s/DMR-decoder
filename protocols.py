@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 import scanner
+from dpmr.decoder import decode as decode_dpmr
 from p25.decoder import decode as decode_p25
 
 
@@ -21,4 +22,5 @@ def decode_all(y: np.ndarray) -> list[dict]:
     results: list[dict] = []
     results.extend(decode_dmr(y))
     results.extend(decode_p25(y))
+    results.extend(decode_dpmr(y))
     return results

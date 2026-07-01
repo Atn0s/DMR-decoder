@@ -6,6 +6,7 @@ from scanner import detect_sample_rate, scan_file
 def test_detect_sample_rate_known():
     assert detect_sample_rate("data/dmr_1_78125.rawiq") == 78125
     assert detect_sample_rate("data/dmr_2_78125.rawiq") == 78125
+    assert detect_sample_rate("data/dpmr_1_48000.rawiq") == 48000
 
 
 def test_detect_sample_rate_unknown():

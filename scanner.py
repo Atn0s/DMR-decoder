@@ -3,11 +3,14 @@ import json
 import os
 import numpy as np
 import scipy.signal as signal
+from math import gcd
 from dataclasses import dataclass, field
 
 from core.burst_type import Fs_wide, Fs_dec, UP_FACTOR, DOWN_FACTOR, SPS, SYNC_TEMPLATES
 from core.dsp import read_rawiq, frontend, find_sync_positions, recover_burst, adaptive_slice_bits, _interp
 from core.decoder import decode_burst, LateEntryCollector
+from dpmr.decoder import filter_stable_pdus
+from dpmr.dsp import frontend_dpmr
 
 
 @dataclass
@@ -119,24 +122,54 @@ def _decode_loop(y: np.ndarray) -> list[dict]:
     return protocols.decode_all(y)
 
 
+def _decode_protocol_frontends(y: np.ndarray, y_dpmr: np.ndarray | None = None) -> list[dict]:
+    import protocols
+
+    results: list[dict] = []
+    results.extend(protocols.decode_dmr(y))
+    results.extend(protocols.decode_p25(y))
+    results.extend(protocols.decode_dpmr(y_dpmr if y_dpmr is not None else y))
+    return results
+
+
+def _resample_factors(source_sample_rate: float, target: float = Fs_dec) -> tuple[int, int]:
+    up = int(round(target))
+    down = int(round(source_sample_rate))
+    g = gcd(up, down)
+    return up // g, down // g
+
+
 def _process_candidate(iq: np.ndarray, fo: float, fs_in: float) -> list[dict]:
     """DDC + resample + frontend, then decode; tags each PDU with _fo_hz."""
     t = np.arange(len(iq)) / fs_in
     iq_shifted = iq * np.exp(-1j * 2 * np.pi * fo * t)
-    iq_dec = signal.resample_poly(iq_shifted, UP_FACTOR, DOWN_FACTOR)
+    if abs(fs_in - Fs_dec) < 1:
+        iq_dec = iq_shifted
+    elif abs(fs_in - Fs_wide) < 1:
+        iq_dec = signal.resample_poly(iq_shifted, UP_FACTOR, DOWN_FACTOR)
+    else:
+        up, down = _resample_factors(fs_in)
+        iq_dec = signal.resample_poly(iq_shifted, up, down)
     y = frontend(iq_dec, fo=0.0, fs=Fs_dec)
+    y_dpmr = frontend_dpmr(iq_dec, fs=Fs_dec)
 
-    results = _decode_loop(y)
+    results = _decode_protocol_frontends(y, y_dpmr)
     for pdu in results:
         pdu["_fo_hz"] = fo
     return results
 
 
-def _process_narrowband(iq: np.ndarray) -> list[dict]:
+def _process_narrowband(iq: np.ndarray, fs_in: float | None = None) -> list[dict]:
     """Resample + frontend for a narrowband stream already at or near 48kHz, then decode."""
-    iq_dec = signal.resample_poly(iq, 384, 625)
+    fs = fs_in or Fs_dec
+    if abs(fs - Fs_dec) < 1:
+        iq_dec = iq
+    else:
+        up, down = _resample_factors(fs)
+        iq_dec = signal.resample_poly(iq, up, down)
     y = frontend(iq_dec, fo=0.0, fs=Fs_dec)
-    return _decode_loop(y)
+    y_dpmr = frontend_dpmr(iq_dec, fs=Fs_dec)
+    return _decode_protocol_frontends(y, y_dpmr)
 
 
 def scan_file(path: str, freq_list: list[float] | None = None,
@@ -162,7 +195,9 @@ def scan_file(path: str, freq_list: list[float] | None = None,
         for fo in fos:
             all_pdus.extend(_process_candidate(iq, fo, fs_in))
     else:
-        all_pdus = _process_narrowband(iq)
+        all_pdus = _process_narrowband(iq, fs)
+
+    all_pdus = filter_stable_pdus(all_pdus)
 
     # Cross-candidate dedup: same burst seen at two very close frequency offsets
     # (within 5kHz) is dropped; PDUs from genuinely different candidates are kept.
@@ -173,6 +208,16 @@ def scan_file(path: str, freq_list: list[float] | None = None,
             extra = pdu.get("extra", {})
             frame_bucket = round(extra.get("fs_start", 0) / 8640)
             k = ("P25", extra.get("nac"), pdu["type"], frame_bucket)
+        elif pdu.get("protocol") == "dPMR":
+            extra = pdu.get("extra", {})
+            frame_bucket = round(extra.get("fs_start", 0) / 3840)
+            k = (
+                "dPMR",
+                pdu.get("src", ""),
+                pdu.get("dst", ""),
+                extra.get("color_code"),
+                frame_bucket,
+            )
         else:
             fo_bucket = round(pdu.get("_fo_hz", 0) / 5000) * 5000
             k = ("DMR", pdu["src"], pdu["dst"], pdu["type"], fo_bucket)
@@ -193,11 +238,43 @@ def _print_results(pdus: list[dict]) -> None:
         if proto == "P25":
             print(_format_p25_result(p, fo_str))
             continue
+        if proto == "dPMR":
+            print(_format_dpmr_result(p, fo_str))
+            continue
         extra = p.get("extra", {})
         print(
             f"[{p['type']:<12}] PROTO={proto} SRC={p['src']} DST={p['dst']} "
             f"FLCO={p['flco']} FID={p.get('fid','')}{fo_str}"
         )
+
+
+def _format_dpmr_result(pdu: dict, fo_str: str = "") -> str:
+    extra = pdu.get("extra", {})
+    color_code = extra.get("color_code", -1)
+    pol = "INV" if extra.get("polarity_inverted") else "NORM"
+    quality = extra.get("quality", {})
+    confidence = quality.get("front_end_confidence", quality.get("confidence", ""))
+    crc = quality.get("crc_ok_count", 0)
+    ham = quality.get("hamming_ok_count", 0)
+    sync_type = extra.get("sync_type", "")
+    timing = extra.get("segment_timing", {}).get("cc", {})
+    if not timing:
+        timing = extra.get("segment_timing", {}).get("header", {})
+    e90 = timing.get("decision_error_p90")
+    amb = timing.get("ambiguous_symbols")
+    decision = (
+        f" E90={e90:.2f} AMB={amb}"
+        if isinstance(e90, (int, float)) and isinstance(amb, int)
+        else ""
+    )
+    src = pdu.get("src") or ""
+    dst = pdu.get("dst") or ""
+    cc_text = f"{color_code:02d}" if isinstance(color_code, int) and color_code >= 0 else "--"
+    return (
+        f"[{pdu['type']:<12}] PROTO=dPMR SRC={src} DST={dst} "
+        f"CC={cc_text} SYNC={sync_type} POL={pol} QUAL={confidence} CRC={crc} HAM={ham}"
+        f"{decision}{fo_str}"
+    )
 
 
 def _format_p25_result(pdu: dict, fo_str: str = "") -> str:

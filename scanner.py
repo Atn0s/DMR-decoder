@@ -1,40 +1,27 @@
-import re
 import json
 import os
 import numpy as np
 import scipy.signal as signal
 from math import gcd
-from dataclasses import dataclass, field
 
-from core.burst_type import Fs_wide, Fs_dec, UP_FACTOR, DOWN_FACTOR, SPS, SYNC_TEMPLATES
-from core.dsp import read_rawiq, frontend, find_sync_positions, recover_burst, adaptive_slice_bits, _interp
-from core.decoder import decode_burst, LateEntryCollector
+from common.io import detect_sample_rate as _detect_sample_rate, read_rawiq
+from dmr.constants import Fs_wide, Fs_dec, UP_FACTOR, DOWN_FACTOR
+from dmr.dsp import frontend
+from dmr.offline import _decode_dmr_loop as _dmr_decode_loop
 from dpmr.decoder import filter_stable_pdus
 from dpmr.dsp import frontend_dpmr
 
 
-@dataclass
-class Session:
-    src: int
-    dst: int
-    start_pdu: dict
-    voice_raw: list = field(default_factory=list)
-    terminator: dict | None = None
-    late_entry_lc: dict | None = None
-    duration_s: float | None = None
+SUPPORTED_PROTOCOLS = ("DMR", "P25", "dPMR")
 
 
 def detect_sample_rate(path: str) -> int | None:
-    """Extract sample rate from filename, e.g. dmr_1_78125.rawiq -> 78125. Returns None if not found."""
-    m = re.search(r'_(\d{4,7})\.rawiq', os.path.basename(path))
-    return int(m.group(1)) if m else None
+    """Extract sample rate from filenames like dmr_1_78125.rawiq."""
+    return _detect_sample_rate(path)
 
 
 PSD_PEAK_THRESHOLD_DB = 15  # dB above median noise floor for signal candidate detection
 # At 48kHz, same-slot consecutive voice bursts are separated by one full 60ms TDMA frame = 2880 samples
-BURST_STRIDE = 2880
-
-
 def _psd_blind_search(iq: np.ndarray, fs: float) -> list[float]:
     """Find signal candidates in wideband IQ via Welch PSD peak detection."""
     f, psd = signal.welch(iq, fs=fs, nperseg=4096, return_onesided=False)
@@ -46,74 +33,9 @@ def _psd_blind_search(iq: np.ndarray, fs: float) -> list[float]:
     return [float(f[p]) for p in peaks]
 
 
-def _lock_voice_phase(y: np.ndarray, anchor: int, polarity: float, sync_type: str) -> float:
-    """Lock sub-symbol phase using Burst A's known Voice Sync region (symbols [54,78))."""
-    ref = SYNC_TEMPLATES[sync_type]
-    levels = np.array([-3, -1, 1, 3])
-    best = (1e18, 0.0)
-    for ph in np.linspace(-8, 8, 65):
-        start = anchor - (54 + 12) * SPS + ph
-        pos = start + np.arange(132) * SPS
-        if pos[0] < 0 or pos[-1] >= len(y) - 1:
-            continue
-        seg = polarity * _interp(y, pos)
-        sy = seg[54:78]
-        a, b = np.linalg.lstsq(np.vstack([sy, np.ones(24)]).T, ref, rcond=None)[0]
-        segc = a * seg + b
-        near = levels[np.argmin(np.abs(segc[:, None] - levels[None, :]), axis=1)]
-        resid = np.mean((segc - near) ** 2)
-        if resid < best[0]:
-            best = (resid, ph)
-    return best[1]
-
-
-def _recover_stepped_burst(y: np.ndarray, anchor: int, j: int, ph: float, polarity: float):
-    """Recover voice burst j hops from Burst A anchor using fixed BURST_STRIDE.
-    Returns 264-bit bitarray or None if out of bounds."""
-    start = anchor + BURST_STRIDE * j - (54 + 12) * SPS + ph
-    pos = start + np.arange(132) * SPS
-    if pos[0] < 0 or pos[-1] >= len(y) - 1:
-        return None
-    seg = polarity * _interp(y, pos)
-    return adaptive_slice_bits(seg)
-
-
 def _decode_dmr_loop(y: np.ndarray) -> list[dict]:
-    """Existing DMR-only decode loop.
-
-    This is the old _decode_loop body. Keep all DMR behavior unchanged.
-    """
-    positions = find_sync_positions(y)
-    results = []
-    seen_bursts: set[tuple] = set()
-
-    for center, polarity, sync_type in positions:
-        dedup_key = (round(center / 50), sync_type)
-        if dedup_key in seen_bursts:
-            continue
-        seen_bursts.add(dedup_key)
-
-        if "VOICE" in sync_type:
-            # Burst A anchor: step through A(j=0) to F(j=5) at fixed stride
-            ph = _lock_voice_phase(y, center, polarity, sync_type)
-            collector = LateEntryCollector()
-            for j in range(6):
-                ba = _recover_stepped_burst(y, center, j, ph, polarity)
-                if ba is None:
-                    break
-                pdu = collector.feed(ba, sync_type)
-                if pdu is not None:
-                    results.append(dict(pdu))
-                    break
-        else:
-            symbols = recover_burst(y, center, polarity, sync_type)
-            if symbols is None:
-                continue
-            pdu = decode_burst(symbols, sync_type)
-            if pdu is not None:
-                results.append(dict(pdu))
-
-    return results
+    """Backward-compatible wrapper for the relocated DMR decode loop."""
+    return _dmr_decode_loop(y)
 
 
 def _decode_loop(y: np.ndarray) -> list[dict]:
@@ -122,13 +44,38 @@ def _decode_loop(y: np.ndarray) -> list[dict]:
     return protocols.decode_all(y)
 
 
-def _decode_protocol_frontends(y: np.ndarray, y_dpmr: np.ndarray | None = None) -> list[dict]:
+def _normalize_protocol_names(protocol_names: list[str] | tuple[str, ...] | set[str] | None) -> set[str]:
+    if protocol_names is None:
+        return set(SUPPORTED_PROTOCOLS)
+    aliases = {
+        "dmr": "DMR",
+        "p25": "P25",
+        "dpmr": "dPMR",
+    }
+    normalized: set[str] = set()
+    for name in protocol_names:
+        key = name.lower()
+        if key not in aliases:
+            raise ValueError(f"unsupported protocol: {name}")
+        normalized.add(aliases[key])
+    return normalized
+
+
+def _decode_protocol_frontends(
+    y: np.ndarray,
+    y_dpmr: np.ndarray | None = None,
+    protocol_names: set[str] | None = None,
+) -> list[dict]:
     import protocols
 
     results: list[dict] = []
-    results.extend(protocols.decode_dmr(y))
-    results.extend(protocols.decode_p25(y))
-    results.extend(protocols.decode_dpmr(y_dpmr if y_dpmr is not None else y))
+    names = protocol_names or set(SUPPORTED_PROTOCOLS)
+    if "DMR" in names:
+        results.extend(protocols.decode_dmr(y))
+    if "P25" in names:
+        results.extend(protocols.decode_p25(y))
+    if "dPMR" in names:
+        results.extend(protocols.decode_dpmr(y_dpmr if y_dpmr is not None else y))
     return results
 
 
@@ -139,7 +86,12 @@ def _resample_factors(source_sample_rate: float, target: float = Fs_dec) -> tupl
     return up // g, down // g
 
 
-def _process_candidate(iq: np.ndarray, fo: float, fs_in: float) -> list[dict]:
+def _process_candidate(
+    iq: np.ndarray,
+    fo: float,
+    fs_in: float,
+    protocol_names: set[str] | None = None,
+) -> list[dict]:
     """DDC + resample + frontend, then decode; tags each PDU with _fo_hz."""
     t = np.arange(len(iq)) / fs_in
     iq_shifted = iq * np.exp(-1j * 2 * np.pi * fo * t)
@@ -153,13 +105,17 @@ def _process_candidate(iq: np.ndarray, fo: float, fs_in: float) -> list[dict]:
     y = frontend(iq_dec, fo=0.0, fs=Fs_dec)
     y_dpmr = frontend_dpmr(iq_dec, fs=Fs_dec)
 
-    results = _decode_protocol_frontends(y, y_dpmr)
+    results = _decode_protocol_frontends(y, y_dpmr, protocol_names)
     for pdu in results:
         pdu["_fo_hz"] = fo
     return results
 
 
-def _process_narrowband(iq: np.ndarray, fs_in: float | None = None) -> list[dict]:
+def _process_narrowband(
+    iq: np.ndarray,
+    fs_in: float | None = None,
+    protocol_names: set[str] | None = None,
+) -> list[dict]:
     """Resample + frontend for a narrowband stream already at or near 48kHz, then decode."""
     fs = fs_in or Fs_dec
     if abs(fs - Fs_dec) < 1:
@@ -169,17 +125,19 @@ def _process_narrowband(iq: np.ndarray, fs_in: float | None = None) -> list[dict
         iq_dec = signal.resample_poly(iq, up, down)
     y = frontend(iq_dec, fo=0.0, fs=Fs_dec)
     y_dpmr = frontend_dpmr(iq_dec, fs=Fs_dec)
-    return _decode_protocol_frontends(y, y_dpmr)
+    return _decode_protocol_frontends(y, y_dpmr, protocol_names)
 
 
 def scan_file(path: str, freq_list: list[float] | None = None,
-              output_json: str | None = None) -> list[dict]:
+              output_json: str | None = None,
+              protocol_names: list[str] | tuple[str, ...] | set[str] | None = None) -> list[dict]:
     """Scan an offline IQ file. Returns all decoded PDUs.
 
     For wideband files (fs > 200kHz): Welch PSD blind search for candidates.
     For narrowband files (fs <= 200kHz): direct processing.
     freq_list overrides blind search with explicit frequency offsets.
     """
+    enabled_protocols = _normalize_protocol_names(protocol_names)
     iq = read_rawiq(path)
     fs = detect_sample_rate(path)
 
@@ -187,15 +145,15 @@ def scan_file(path: str, freq_list: list[float] | None = None,
         fs_in = fs or Fs_wide
         all_pdus = []
         for fo in freq_list:
-            all_pdus.extend(_process_candidate(iq, fo, fs_in))
+            all_pdus.extend(_process_candidate(iq, fo, fs_in, enabled_protocols))
     elif fs is None or fs > 200_000:
         fs_in = fs or Fs_wide
         fos = _psd_blind_search(iq, fs_in)
         all_pdus = []
         for fo in fos:
-            all_pdus.extend(_process_candidate(iq, fo, fs_in))
+            all_pdus.extend(_process_candidate(iq, fo, fs_in, enabled_protocols))
     else:
-        all_pdus = _process_narrowband(iq, fs)
+        all_pdus = _process_narrowband(iq, fs, enabled_protocols)
 
     all_pdus = filter_stable_pdus(all_pdus)
 
@@ -377,12 +335,35 @@ def _write_json(pdus: list[dict], path: str) -> None:
         json.dump(clean, f, indent=2, default=str)
 
 
-if __name__ == "__main__":
-    import sys
-    targets = sys.argv[1:] if len(sys.argv) > 1 else ["data/dmr_1_78125.rawiq"]
-    for t in targets:
+def main(argv: list[str] | None = None) -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Scan offline IQ files for DMR, P25, and dPMR metadata.")
+    parser.add_argument("targets", nargs="*", default=["data/dmr_1_78125.rawiq"])
+    parser.add_argument("--protocol", action="append", choices=["dmr", "p25", "dpmr"],
+                        help="limit decoding to one protocol; repeat to enable several")
+    parser.add_argument("--fo", type=float, action="append", default=None,
+                        help="frequency offset in Hz; repeat for multiple candidates")
+    parser.add_argument("--json", dest="output_json", default=None,
+                        help="write decoded PDUs to JSON; only valid for one target")
+    args = parser.parse_args(argv)
+
+    if args.output_json and len(args.targets) != 1:
+        parser.error("--json can only be used with one target")
+
+    for t in args.targets:
         if not os.path.exists(t):
             print(f"File not found: {t}")
             continue
         print(f"\n=== {t} ===")
-        scan_file(t)
+        scan_file(
+            t,
+            freq_list=args.fo,
+            output_json=args.output_json,
+            protocol_names=args.protocol,
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

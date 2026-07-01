@@ -5,12 +5,14 @@ from dataclasses import dataclass
 import numpy as np
 import scipy.signal as signal
 
-from core.dsp import _interp, frontend
+from common.dsp import interp
+from common.dsp import fsk_frontend
 from dpmr.constants import (
     CC_SYMBOLS,
     CCH_SYMBOLS,
     DIBIT_TO_BITS,
     DIBIT_TO_LEVEL,
+    DPMR_DEV_NOMINAL,
     DPMR_FRONTEND_CUTOFF,
     DPMR_FRAME_SYMBOLS,
     FS1_SYMBOLS,
@@ -49,7 +51,13 @@ class DPMRSymbolCandidate:
 
 
 def frontend_dpmr(iq_dec: np.ndarray, fs: float = 48_000) -> np.ndarray:
-    return frontend(iq_dec, fo=0.0, fs=fs, cutoff=DPMR_FRONTEND_CUTOFF)
+    return fsk_frontend(
+        iq_dec,
+        fo=0.0,
+        fs=fs,
+        cutoff=DPMR_FRONTEND_CUTOFF,
+        dev_nominal=DPMR_DEV_NOMINAL,
+    )
 
 
 def _ncc(y: np.ndarray, ref: np.ndarray) -> np.ndarray:
@@ -173,9 +181,9 @@ def recover_voice_fs2_symbols(
 
 def _sample_symbols(y: np.ndarray, positions: np.ndarray, half_window: int) -> np.ndarray:
     if half_window <= 0:
-        return _interp(y, positions)
+        return interp(y, positions)
     offsets = np.arange(-half_window, half_window + 1, dtype=float)
-    samples = np.vstack([_interp(y, positions + offset) for offset in offsets])
+    samples = np.vstack([interp(y, positions + offset) for offset in offsets])
     return np.mean(samples, axis=0)
 
 

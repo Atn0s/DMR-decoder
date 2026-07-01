@@ -69,9 +69,29 @@ def test_print_results_accepts_dpmr_voice(capsys):
             "extra": {
                 "color_code": 2,
                 "polarity_inverted": True,
-                "segment_timing": {
-                    "cc": {"decision_error_p90": 0.45, "ambiguous_symbols": 12}
-                },
+                "sync_type": "FS2",
+                "cch": [
+                    {
+                        "frame_number": 2,
+                        "id_half": 0x7FF,
+                        "communication_mode": 0,
+                        "version": 3,
+                        "comms_format": 1,
+                        "emergency_priority": 0,
+                        "reserved": 0,
+                        "slow_data": 0x12345,
+                    },
+                    {
+                        "frame_number": 3,
+                        "id_half": 0xFFF,
+                        "communication_mode": 0,
+                        "version": 3,
+                        "comms_format": 1,
+                        "emergency_priority": 0,
+                        "reserved": 0,
+                        "slow_data": 0x23456,
+                    },
+                ],
             },
         }
     ])
@@ -80,10 +100,20 @@ def test_print_results_accepts_dpmr_voice(capsys):
     assert "DPMR_VOICE" in out
     assert "PROTO=dPMR" in out
     assert "CC=02" in out
+    assert "SYNC=FS2" in out
     assert "POL=INV" in out
-    assert "QUAL=" in out
-    assert "E90=0.45" in out
-    assert "AMB=12" in out
+    assert "QUAL=" not in out
+    assert "CRC=" not in out
+    assert "HAM=" not in out
+    assert "E90=" not in out
+    assert "AMB=" not in out
+    assert "FN=2" in out
+    assert "IDH=0x7FF" in out
+    assert "M=0" in out
+    assert "V=3" in out
+    assert "F=1" in out
+    assert "RES=0" in out
+    assert "SLD=0x12345" in out
 
 
 def test_print_results_accepts_dpmr_header(capsys):
@@ -101,10 +131,18 @@ def test_print_results_accepts_dpmr_header(capsys):
                 "color_code": -1,
                 "polarity_inverted": False,
                 "sync_type": "FS1",
-                "quality": {"front_end_confidence": "high", "crc_ok_count": 2, "hamming_ok_count": 2},
-                "segment_timing": {
-                    "header": {"decision_error_p90": 0.12, "ambiguous_symbols": 0}
-                },
+                "cch": [
+                    {
+                        "frame_number": 0,
+                        "id_half": 0x123,
+                        "communication_mode": 1,
+                        "version": 0,
+                        "comms_format": 2,
+                        "emergency_priority": 1,
+                        "reserved": 0,
+                        "slow_data": 0,
+                    }
+                ],
             },
         }
     ])
@@ -114,3 +152,8 @@ def test_print_results_accepts_dpmr_header(capsys):
     assert "PROTO=dPMR" in out
     assert "SYNC=FS1" in out
     assert "CC=--" in out
+    assert "FN=0" in out
+    assert "IDH=0x123" in out
+    assert "M=1" in out
+    assert "F=2" in out
+    assert "E=1" in out

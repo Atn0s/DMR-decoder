@@ -252,29 +252,37 @@ def _format_dpmr_result(pdu: dict, fo_str: str = "") -> str:
     extra = pdu.get("extra", {})
     color_code = extra.get("color_code", -1)
     pol = "INV" if extra.get("polarity_inverted") else "NORM"
-    quality = extra.get("quality", {})
-    confidence = quality.get("front_end_confidence", quality.get("confidence", ""))
-    crc = quality.get("crc_ok_count", 0)
-    ham = quality.get("hamming_ok_count", 0)
     sync_type = extra.get("sync_type", "")
-    timing = extra.get("segment_timing", {}).get("cc", {})
-    if not timing:
-        timing = extra.get("segment_timing", {}).get("header", {})
-    e90 = timing.get("decision_error_p90")
-    amb = timing.get("ambiguous_symbols")
-    decision = (
-        f" E90={e90:.2f} AMB={amb}"
-        if isinstance(e90, (int, float)) and isinstance(amb, int)
-        else ""
-    )
     src = pdu.get("src") or ""
     dst = pdu.get("dst") or ""
     cc_text = f"{color_code:02d}" if isinstance(color_code, int) and color_code >= 0 else "--"
+    cch_text = _format_dpmr_cch(extra.get("cch", []))
     return (
         f"[{pdu['type']:<12}] PROTO=dPMR SRC={src} DST={dst} "
-        f"CC={cc_text} SYNC={sync_type} POL={pol} QUAL={confidence} CRC={crc} HAM={ham}"
-        f"{decision}{fo_str}"
+        f"CC={cc_text} SYNC={sync_type} POL={pol}{cch_text}{fo_str}"
     )
+
+
+def _format_dpmr_cch(cch_records: list[dict | None]) -> str:
+    records = [record for record in cch_records if isinstance(record, dict)]
+    if not records:
+        return ""
+    parts = []
+    for record in records:
+        parts.append(
+            "FN={fn} IDH=0x{idh:03X} M={mode} V={version} F={fmt} "
+            "E={emergency} RES={reserved} SLD=0x{slow:05X}".format(
+                fn=record.get("frame_number", 0),
+                idh=record.get("id_half", 0),
+                mode=record.get("communication_mode", 0),
+                version=record.get("version", 0),
+                fmt=record.get("comms_format", 0),
+                emergency=record.get("emergency_priority", 0),
+                reserved=record.get("reserved", 0),
+                slow=record.get("slow_data", 0),
+            )
+        )
+    return " CCH=[" + "; ".join(parts) + "]"
 
 
 def _format_p25_result(pdu: dict, fo_str: str = "") -> str:

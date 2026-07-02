@@ -8,6 +8,7 @@ from common.config import DEFAULT_RADIO_CONFIG
 from dmr import plugin as dmr_plugin
 from dpmr import plugin as dpmr_plugin
 from p25 import plugin as p25_plugin
+from radio.pdu import pdu_get, pdu_to_dict
 from radio.protocol import ProtocolSpec, call_decoder
 
 
@@ -58,7 +59,7 @@ def spec_for_protocol(name: str) -> ProtocolSpec:
 
 
 def spec_for_pdu(pdu: dict) -> ProtocolSpec:
-    return spec_for_protocol(pdu.get("protocol", "DMR"))
+    return spec_for_protocol(pdu_get(pdu, "protocol", "DMR"))
 
 
 def normalize_protocol_names(
@@ -124,9 +125,9 @@ def postprocess_pdus(
 
 def dedup_key(pdu: dict) -> tuple:
     try:
-        return spec_for_pdu(pdu).dedup_key(pdu)
+        return spec_for_pdu(pdu).dedup_key(pdu_to_dict(pdu))
     except ValueError:
-        return _dmr_dedup_key(pdu)
+        return _dmr_dedup_key(pdu_to_dict(pdu))
 
 
 def deduplicate_pdus(pdus: list[dict]) -> list[dict]:
@@ -142,7 +143,8 @@ def deduplicate_pdus(pdus: list[dict]) -> list[dict]:
 
 
 def _fo_suffix(pdu: dict) -> str:
-    return f" (fo={pdu['_fo_hz']/1e3:+.1f}kHz)" if "_fo_hz" in pdu else ""
+    fo_hz = pdu_get(pdu, "_fo_hz")
+    return f" (fo={fo_hz/1e3:+.1f}kHz)" if fo_hz is not None else ""
 
 
 def format_pdu(pdu: dict) -> str:
@@ -150,4 +152,4 @@ def format_pdu(pdu: dict) -> str:
         formatter = spec_for_pdu(pdu).formatter
     except ValueError:
         formatter = format_dmr_pdu
-    return formatter(pdu, _fo_suffix(pdu))
+    return formatter(pdu_to_dict(pdu), _fo_suffix(pdu))

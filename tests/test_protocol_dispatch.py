@@ -9,6 +9,7 @@ import dpmr.plugin as dpmr_plugin
 from p25.config import P25Config
 import p25.plugin as p25_plugin
 import protocols
+from radio.pdu import PDU
 
 
 def test_decode_all_combines_dmr_and_p25(monkeypatch):
@@ -103,6 +104,23 @@ def test_protocol_dedup_key_is_protocol_aware():
     assert protocols.dedup_key(p25) == ("P25", 0x293, "P25_LDU1", 1)
     assert protocols.dedup_key(dmr) == ("DMR", 1, 1, "LC_HEADER", 0)
     assert protocols.dedup_key(dpmr) == ("dPMR", "1", "2", 2, 1)
+
+
+def test_protocol_boundaries_accept_pdu_dataclass():
+    pdu = PDU.from_dict({
+        "protocol": "DMR",
+        "type": "LC_HEADER",
+        "src": 1,
+        "dst": 2,
+        "ts": 0,
+        "flco": "GroupVoiceChannelUser",
+        "fid": "FID",
+        "extra": {},
+        "_fo_hz": 1250.0,
+    })
+
+    assert protocols.dedup_key(pdu) == ("DMR", 1, 2, "LC_HEADER", 0)
+    assert protocols.format_pdu(pdu).endswith("FID=FID (fo=+1.2kHz)")
 
 
 def test_protocol_spec_exposes_formatter_and_dedup_key():

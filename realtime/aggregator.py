@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
 
+from radio.pdu import pdu_get
+
 CALL_TIMEOUT_WINDOWS = 5   # close a call after this many windows with no update
 
 
@@ -34,17 +36,17 @@ class SessionAggregator:
     def _key(self, pdu: dict) -> tuple:
         # Prefer absolute RF frequency (wideband channelizer path); fall back to
         # sub-band-relative offset for the legacy narrowband pipeline/tests.
-        freq = pdu.get("_rf_hz", pdu.get("_fo_hz", 0.0))
+        freq = pdu_get(pdu, "_rf_hz", pdu_get(pdu, "_fo_hz", 0.0))
         bucket = round(freq / self.fo_bucket_hz) * self.fo_bucket_hz
-        return (bucket, pdu["src"], pdu["dst"])
+        return (bucket, pdu_get(pdu, "src"), pdu_get(pdu, "dst"))
 
     def feed(self, pdu: dict) -> None:
-        if pdu.get("protocol", "DMR") != "DMR":
+        if pdu_get(pdu, "protocol", "DMR") != "DMR":
             return
 
         key = self._key(pdu)
-        wid = pdu.get("_window_id", 0)
-        ptype = pdu["type"]
+        wid = pdu_get(pdu, "_window_id", 0)
+        ptype = pdu_get(pdu, "type")
 
         rec = self._calls.get(key)
 
@@ -63,15 +65,15 @@ class SessionAggregator:
         # LC_HEADER / LATE_ENTRY / CSBK: open-or-hit the call record
         if rec is None:
             rec = CallRecord(
-                fo_hz=key[0], src=pdu["src"], dst=pdu["dst"],
-                flco=pdu.get("flco", ""), fid=pdu.get("fid", ""),
+                fo_hz=key[0], src=pdu_get(pdu, "src"), dst=pdu_get(pdu, "dst"),
+                flco=pdu_get(pdu, "flco", ""), fid=pdu_get(pdu, "fid", ""),
                 start_window=wid, last_window=wid)
             self._calls[key] = rec
         rec.last_window = max(rec.last_window, wid)
 
         if ptype == "LATE_ENTRY":
             # voice/embedded fragments accumulate (different time segments)
-            rec.voice_raw.append(pdu.get("raw_bits", b""))
+            rec.voice_raw.append(pdu_get(pdu, "raw_bits", b""))
 
     def expire(self, current_window: int, closed_fos: list[float]) -> list[CallRecord]:
         closed = list(self._pending_closed)

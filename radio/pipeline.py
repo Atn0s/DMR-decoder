@@ -7,6 +7,7 @@ import scipy.signal as signal
 
 from common.config import DEFAULT_RADIO_CONFIG, RadioConfig
 import protocols
+from radio.pdu import set_pdu_meta
 
 
 def psd_blind_search(
@@ -70,7 +71,7 @@ def process_candidate(
         sample_rate=target_sample_rate,
     )
     for pdu in results:
-        pdu["_fo_hz"] = fo
+        set_pdu_meta(pdu, "fo_hz", fo)
     return results
 
 

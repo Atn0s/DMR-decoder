@@ -4,6 +4,7 @@ from realtime.channelizer import PolyphaseChannelizer
 from realtime.detector import Detector
 from realtime.aggregator import SessionAggregator, CallRecord
 from realtime.worker import decode_window
+from radio.pdu import set_pdu_meta
 
 
 class WidebandScanner:
@@ -117,7 +118,7 @@ class WidebandScanner:
                     pdus = decode_window(iq, fo_rel, w, self.subband_rate)
                     rf = self.center_hz + float(self.centers[i]) + fo_rel
                     for pdu in pdus:
-                        pdu["_rf_hz"] = rf
+                        set_pdu_meta(pdu, "rf_hz", rf)
                         self.aggregator.feed(pdu)
                 # Detector.closed_channels() returns sub-band-RELATIVE offsets,
                 # but call records are keyed on ABSOLUTE RF (_rf_hz).  Map the

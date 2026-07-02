@@ -1,6 +1,7 @@
 # tests/test_aggregator.py
 import pytest
 from realtime.aggregator import SessionAggregator, CallRecord, CALL_TIMEOUT_WINDOWS
+from radio.pdu import PDU
 
 
 def _pdu(type_, src=1, dst=2, fo=150000.0, wid=0, flco="GroupVoiceChannelUser"):
@@ -16,6 +17,14 @@ def test_lc_header_opens_session():
     assert len(calls) == 1
     assert calls[0].src == 1 and calls[0].dst == 2
     assert calls[0].start_window == 0
+
+
+def test_aggregator_accepts_pdu_dataclass():
+    agg = SessionAggregator()
+    agg.feed(PDU.from_dict(_pdu("LC_HEADER", wid=0)))
+    calls = agg.active_calls()
+    assert len(calls) == 1
+    assert calls[0].src == 1 and calls[0].dst == 2
 
 
 def test_p25_nid_does_not_open_session_or_expire_closed_call():

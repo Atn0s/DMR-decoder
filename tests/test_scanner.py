@@ -2,6 +2,7 @@ import os
 import pytest
 from scanner import detect_sample_rate, scan_file
 import scanner
+from radio.pdu import PDU
 
 
 def test_detect_sample_rate_known():
@@ -95,6 +96,37 @@ def test_scan_file_delegates_iq_processing_to_radio_pipeline(monkeypatch):
     assert calls == [
         ("scan_iq", True, 48_000, [1000.0], ("DMR",), scanner.RADIO_CONFIG),
         ("print", pdus),
+    ]
+
+
+def test_write_json_accepts_pdu_dataclass(tmp_path):
+    out = str(tmp_path / "result.json")
+    pdu = PDU.from_dict({
+        "protocol": "DMR",
+        "type": "LC_HEADER",
+        "src": 1,
+        "dst": 2,
+        "raw_bits": b"abc",
+        "_fo_hz": 1250.0,
+    })
+
+    scanner._write_json([pdu], out)
+
+    import json
+    with open(out) as f:
+        data = json.load(f)
+    assert data == [
+        {
+            "protocol": "DMR",
+            "type": "LC_HEADER",
+            "src": 1,
+            "dst": 2,
+            "ts": None,
+            "flco": "",
+            "fid": "",
+            "extra": {},
+            "_fo_hz": 1250.0,
+        }
     ]
 
 

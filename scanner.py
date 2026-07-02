@@ -8,6 +8,7 @@ from common.io import detect_sample_rate as _detect_sample_rate, read_rawiq
 from dmr.dsp import frontend  # Backward-compatible scanner.frontend export.
 from dmr.engine import _decode_dmr_loop as _engine_decode_dmr_loop
 from radio import pipeline as radio_pipeline
+from radio.pdu import pdu_to_dict
 
 
 SUPPORTED_PROTOCOLS = protocols.SUPPORTED_PROTOCOLS
@@ -127,7 +128,7 @@ def _p25_detail(pdu: dict) -> str:
 
 
 def _write_json(pdus: list[dict], path: str) -> None:
-    clean = [{k: v for k, v in p.items() if k != "raw_bits"} for p in pdus]
+    clean = [pdu_to_dict(p, include_raw_bits=False) for p in pdus]
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w") as f:
         json.dump(clean, f, indent=2, default=str)

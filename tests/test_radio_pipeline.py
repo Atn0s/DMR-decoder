@@ -1,6 +1,7 @@
 import numpy as np
 
 from radio import pipeline
+from radio.pdu import PDU
 
 
 def test_process_candidate_tags_frequency_offset(monkeypatch):
@@ -21,6 +22,24 @@ def test_process_candidate_tags_frequency_offset(monkeypatch):
 
     assert calls == [(8, {"dmr"}, 48_000.0)]
     assert result == [{"protocol": "DMR", "type": "LC_HEADER", "_fo_hz": 1250.0}]
+
+
+def test_process_candidate_tags_pdu_metadata(monkeypatch):
+    def fake_decode_iq(iq, protocol_names=None, sample_rate=0):
+        return [PDU.from_dict({"protocol": "DMR", "type": "LC_HEADER"})]
+
+    monkeypatch.setattr(pipeline.protocols, "decode_iq", fake_decode_iq)
+
+    result = pipeline.process_candidate(
+        np.ones(8, dtype=complex),
+        fo=1250.0,
+        source_sample_rate=48_000.0,
+        protocol_names={"dmr"},
+    )
+
+    assert isinstance(result[0], PDU)
+    assert result[0].meta == {"fo_hz": 1250.0}
+    assert result[0].to_dict()["_fo_hz"] == 1250.0
 
 
 def test_scan_iq_runs_narrowband_decode_postprocess_and_dedup(monkeypatch):

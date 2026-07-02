@@ -4,6 +4,7 @@ from math import gcd
 
 from core.burst_type import Fs_dec
 from core.dsp import frontend
+from radio.pdu import set_pdu_meta
 import scanner
 
 
@@ -36,8 +37,8 @@ def decode_window(window_iq: np.ndarray, fo_hz: float, window_id: int,
         y = frontend(iq_dec, fo=0.0, fs=Fs_dec)
         pdus = scanner._decode_loop(y)
         for pdu in pdus:
-            pdu["_fo_hz"] = fo_hz
-            pdu["_window_id"] = window_id
+            set_pdu_meta(pdu, "fo_hz", fo_hz)
+            set_pdu_meta(pdu, "window_id", window_id)
         return pdus
     except Exception:
         return []

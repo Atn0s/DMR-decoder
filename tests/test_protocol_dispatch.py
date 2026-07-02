@@ -89,6 +89,22 @@ def test_protocol_dedup_key_is_protocol_aware():
     assert protocols.dedup_key(dpmr) == ("dPMR", "1", "2", 2, 1)
 
 
+def test_protocol_spec_exposes_formatter_and_dedup_key():
+    spec = protocols.spec_for_protocol("p25")
+    pdu = {
+        "protocol": "P25",
+        "type": "P25_NID",
+        "src": 0,
+        "dst": 0,
+        "flco": "LDU1",
+        "fid": "",
+        "extra": {"nac": 0x293, "duid": 0x5, "fs_start": 8641},
+    }
+
+    assert spec.dedup_key(pdu) == ("P25", 0x293, "P25_NID", 1)
+    assert spec.formatter(pdu, "").startswith("[P25_NID")
+
+
 def test_print_results_accepts_p25_nid(capsys):
     import scanner
 

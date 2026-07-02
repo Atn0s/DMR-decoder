@@ -50,12 +50,13 @@ def process_candidate(
 ) -> list[dict]:
     """DDC + resample + protocol decode for one wideband frequency candidate."""
     target_sample_rate = radio_config.target_sample_rate_hz
+    sample_rate_tolerance = radio_config.sample_rate_tolerance_hz
     t = np.arange(len(iq)) / source_sample_rate
     iq_shifted = iq * np.exp(-1j * 2 * np.pi * fo * t)
 
-    if abs(source_sample_rate - target_sample_rate) < 1:
+    if abs(source_sample_rate - target_sample_rate) < sample_rate_tolerance:
         iq_dec = iq_shifted
-    elif abs(source_sample_rate - radio_config.wideband_sample_rate_hz) < 1:
+    elif abs(source_sample_rate - radio_config.wideband_sample_rate_hz) < sample_rate_tolerance:
         iq_dec = signal.resample_poly(
             iq_shifted,
             radio_config.wideband_resample_up,
@@ -83,8 +84,9 @@ def process_narrowband(
 ) -> list[dict]:
     """Resample a narrowband IQ stream if needed, then run protocol decode."""
     target_sample_rate = radio_config.target_sample_rate_hz
+    sample_rate_tolerance = radio_config.sample_rate_tolerance_hz
     fs = source_sample_rate or target_sample_rate
-    if abs(fs - target_sample_rate) < 1:
+    if abs(fs - target_sample_rate) < sample_rate_tolerance:
         iq_dec = iq
     else:
         up, down = resample_factors(fs, target_sample_rate)

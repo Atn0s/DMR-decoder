@@ -56,6 +56,8 @@ def frontend_dpmr(
     cutoff: float = DPMR_FRONTEND_CUTOFF,
     ntaps: int = 151,
     dev_nominal: float = DPMR_DEV_NOMINAL,
+    min_samples: int = 512,
+    psd_nperseg: int = 4096,
 ) -> np.ndarray:
     return fsk_frontend(
         iq_dec,
@@ -64,6 +66,8 @@ def frontend_dpmr(
         cutoff=cutoff,
         ntaps=ntaps,
         dev_nominal=dev_nominal,
+        min_samples=min_samples,
+        psd_nperseg=psd_nperseg,
     )
 
 

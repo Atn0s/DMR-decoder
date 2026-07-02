@@ -18,6 +18,7 @@ import scanner
 
 def test_radio_config_matches_legacy_scanner_constants():
     assert DEFAULT_RADIO_CONFIG.target_sample_rate_hz == Fs_dec
+    assert DEFAULT_RADIO_CONFIG.sample_rate_tolerance_hz == 1.0
     assert DEFAULT_RADIO_CONFIG.wideband_sample_rate_hz == Fs_wide
     assert DEFAULT_RADIO_CONFIG.wideband_resample_up == UP_FACTOR
     assert DEFAULT_RADIO_CONFIG.wideband_resample_down == DOWN_FACTOR
@@ -46,6 +47,20 @@ def test_dmr_config_matches_legacy_decode_parameters():
     assert DEFAULT_DMR_CONFIG.sync_threshold_data == NCC_THRESHOLD_DATA
     assert DEFAULT_DMR_CONFIG.sync_peak_distance_samples == 800
     assert DEFAULT_DMR_CONFIG.voice_burst_stride_samples == BURST_STRIDE
+    assert DEFAULT_DMR_CONFIG.burst_dedup_window_samples == 50
+    assert DEFAULT_DMR_CONFIG.dedup_frequency_bucket_hz == 5_000.0
+
+
+def test_protocol_configs_capture_frontend_and_dedup_defaults():
+    assert DEFAULT_DMR_CONFIG.frontend_min_samples == 512
+    assert DEFAULT_DMR_CONFIG.frontend_psd_nperseg == 4096
+    assert DEFAULT_P25_CONFIG.frontend_min_samples == 512
+    assert DEFAULT_P25_CONFIG.frontend_psd_nperseg == 4096
+    assert DEFAULT_P25_CONFIG.dedup_frame_bucket_samples == 8_640
+    assert DEFAULT_DPMR_CONFIG.frontend_min_samples == 512
+    assert DEFAULT_DPMR_CONFIG.frontend_psd_nperseg == 4096
+    assert DEFAULT_DPMR_CONFIG.dedup_frame_bucket_samples == 3_840
+    assert DEFAULT_DPMR_CONFIG.stable_color_min_repeats == 2
 
 
 def test_realtime_config_captures_current_defaults():

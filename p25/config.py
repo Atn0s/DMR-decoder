@@ -10,9 +10,12 @@ class P25Config:
     samples_per_symbol: int = 10
     frontend_cutoff_hz: float = 9_500.0
     frontend_taps: int = 151
+    frontend_min_samples: int = 512
+    frontend_psd_nperseg: int = 4096
     nominal_deviation_hz: float = 1_944.0
     sync_threshold: float = 0.62
     ldu_symbols: int = 864
+    dedup_frame_bucket_samples: int = 8_640
 
 
 DEFAULT_P25_CONFIG = P25Config()

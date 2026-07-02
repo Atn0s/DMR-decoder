@@ -6,6 +6,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class RadioConfig:
     target_sample_rate_hz: float = 48_000.0
+    sample_rate_tolerance_hz: float = 1.0
     wideband_sample_rate_hz: float = 2_500_000.0
     wideband_resample_up: int = 12
     wideband_resample_down: int = 625

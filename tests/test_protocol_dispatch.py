@@ -216,6 +216,21 @@ def test_postprocess_pdus_uses_protocol_specs(monkeypatch):
     assert result == [{"protocol": "dPMR", "type": "DPMR_VOICE", "postprocessed": True}]
 
 
+def test_dpmr_postprocess_uses_configured_stable_color_repeats(monkeypatch):
+    calls = []
+
+    def fake_filter(pdus, min_repeats):
+        calls.append((pdus, min_repeats))
+        return pdus
+
+    monkeypatch.setattr(dpmr_plugin, "filter_stable_pdus", fake_filter)
+
+    pdus = [{"protocol": "dPMR", "type": "DPMR_VOICE"}]
+
+    assert dpmr_plugin.postprocess(pdus) == pdus
+    assert calls == [(pdus, dpmr_plugin.DEFAULT_DPMR_CONFIG.stable_color_min_repeats)]
+
+
 def test_protocol_decoder_wrappers_pass_config(monkeypatch):
     calls = []
 
@@ -252,6 +267,62 @@ def test_protocol_decoder_wrappers_pass_config(monkeypatch):
     protocols.decode_dpmr(np.zeros(3), DPMRConfig(sync_threshold=0.9))
 
     assert calls == [("dmr", 0.71, 0.58, 4320), ("p25", 8, 0.7), ("dpmr", 0.9)]
+
+
+def test_protocol_frontend_wrappers_pass_config(monkeypatch):
+    calls = []
+
+    def fake_c4fm_frontend(iq, fo, fs, cutoff, ntaps, dev_nominal, min_samples, psd_nperseg):
+        calls.append((fs, cutoff, ntaps, dev_nominal, min_samples, psd_nperseg))
+        return np.zeros(3)
+
+    def fake_dpmr_frontend(iq, fs, cutoff, ntaps, dev_nominal, min_samples, psd_nperseg):
+        calls.append((fs, cutoff, ntaps, dev_nominal, min_samples, psd_nperseg))
+        return np.ones(3)
+
+    monkeypatch.setattr(dmr_plugin, "_frontend_c4fm", fake_c4fm_frontend)
+    monkeypatch.setattr(p25_plugin, "_frontend_c4fm", fake_c4fm_frontend)
+    monkeypatch.setattr(dpmr_plugin, "frontend_dpmr", fake_dpmr_frontend)
+
+    dmr_plugin.frontend(
+        np.zeros(8),
+        12_000.0,
+        DMRConfig(
+            frontend_cutoff_hz=8_000.0,
+            frontend_taps=101,
+            nominal_deviation_hz=1_800.0,
+            frontend_min_samples=256,
+            frontend_psd_nperseg=2048,
+        ),
+    )
+    p25_plugin.frontend(
+        np.zeros(8),
+        24_000.0,
+        P25Config(
+            frontend_cutoff_hz=7_000.0,
+            frontend_taps=99,
+            nominal_deviation_hz=1_700.0,
+            frontend_min_samples=300,
+            frontend_psd_nperseg=1024,
+        ),
+    )
+    dpmr_plugin.frontend(
+        np.zeros(8),
+        48_000.0,
+        DPMRConfig(
+            frontend_cutoff_hz=3_000.0,
+            frontend_taps=77,
+            nominal_deviation_hz=1_600.0,
+            frontend_min_samples=384,
+            frontend_psd_nperseg=512,
+        ),
+    )
+
+    assert calls == [
+        (12_000.0, 8_000.0, 101, 1_800.0, 256, 2048),
+        (24_000.0, 7_000.0, 99, 1_700.0, 300, 1024),
+        (48_000.0, 3_000.0, 77, 1_600.0, 384, 512),
+    ]
 
 
 def test_print_results_accepts_p25_nid(capsys):

@@ -16,6 +16,8 @@ def frontend(iq_dec: np.ndarray, sample_rate: float, config: object) -> np.ndarr
         cutoff=config.frontend_cutoff_hz,
         ntaps=config.frontend_taps,
         dev_nominal=config.nominal_deviation_hz,
+        min_samples=config.frontend_min_samples,
+        psd_nperseg=config.frontend_psd_nperseg,
     )
 
 
@@ -24,7 +26,8 @@ def _canonical_dmr_protocol(proto: object) -> str:
 
 
 def dedup_key(pdu: dict) -> tuple:
-    fo_bucket = round(pdu.get("_fo_hz", 0) / 5000) * 5000
+    bucket_hz = DEFAULT_DMR_CONFIG.dedup_frequency_bucket_hz
+    fo_bucket = round(pdu.get("_fo_hz", 0) / bucket_hz) * bucket_hz
     return (
         _canonical_dmr_protocol(pdu.get("protocol", "DMR")),
         pdu.get("src", 0),

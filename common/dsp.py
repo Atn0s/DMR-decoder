@@ -18,14 +18,18 @@ def fsk_frontend(
     cutoff: float = 9500.0,
     ntaps: int = 151,
     dev_nominal: float = 1944.0,
+    min_samples: int = 512,
+    psd_nperseg: int = 4096,
 ) -> np.ndarray:
     """DDC + channel filter + FM discriminator + DC removal for narrowband FSK."""
-    if len(iq_dec) < 512:
-        raise ValueError(f"frontend: signal too short ({len(iq_dec)} samples), need >= 512")
+    if len(iq_dec) < min_samples:
+        raise ValueError(
+            f"frontend: signal too short ({len(iq_dec)} samples), need >= {min_samples}"
+        )
     if fo != 0.0:
         n = np.arange(len(iq_dec))
         iq_dec = iq_dec * np.exp(-1j * 2 * np.pi * fo * n / fs)
-    f, ps = signal.welch(iq_dec, fs=fs, nperseg=4096, return_onesided=False)
+    f, ps = signal.welch(iq_dec, fs=fs, nperseg=psd_nperseg, return_onesided=False)
     f = np.fft.fftshift(f)
     ps = np.fft.fftshift(ps)
     cf = f[np.argmax(ps)]
@@ -37,4 +41,3 @@ def fsk_frontend(
     active = amp > (np.median(amp) + 0.3 * (np.mean(amp) - np.median(amp)))
     center = np.median(yd[active]) if np.any(active) else np.median(yd)
     return (yd - center) * (3.0 / (2.0 * np.pi * dev_nominal / fs))
-

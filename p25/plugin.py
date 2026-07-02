@@ -16,12 +16,14 @@ def frontend(iq_dec: np.ndarray, sample_rate: float, config: object) -> np.ndarr
         cutoff=config.frontend_cutoff_hz,
         ntaps=config.frontend_taps,
         dev_nominal=config.nominal_deviation_hz,
+        min_samples=config.frontend_min_samples,
+        psd_nperseg=config.frontend_psd_nperseg,
     )
 
 
 def dedup_key(pdu: dict) -> tuple:
     extra = pdu.get("extra", {})
-    frame_bucket = round(extra.get("fs_start", 0) / 8640)
+    frame_bucket = round(extra.get("fs_start", 0) / DEFAULT_P25_CONFIG.dedup_frame_bucket_samples)
     return ("P25", extra.get("nac"), pdu.get("type", ""), frame_bucket)
 
 

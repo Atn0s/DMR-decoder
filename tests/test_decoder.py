@@ -140,3 +140,31 @@ def test_dmr_decode_loop_passes_config_to_sync_and_voice_recovery(monkeypatch):
         ("sync", 0.72, 0.59, 640),
         ("voice", 1000, 0, 0.25, 1.0, 4320),
     ]
+
+
+def test_dmr_decode_loop_uses_configured_burst_dedup_window(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(
+        dmr_engine,
+        "find_sync_positions",
+        lambda *args, **kwargs: [
+            (1000, 1.0, "DATA_MS"),
+            (1024, 1.0, "DATA_MS"),
+            (1100, 1.0, "DATA_MS"),
+        ],
+    )
+
+    def fake_recover_burst(y, center, polarity, sync_type):
+        calls.append(center)
+        return None
+
+    monkeypatch.setattr(dmr_engine, "recover_burst", fake_recover_burst)
+
+    result = dmr_engine._decode_dmr_loop(
+        np.zeros(1200),
+        DMRConfig(burst_dedup_window_samples=50),
+    )
+
+    assert result == []
+    assert calls == [1000, 1100]

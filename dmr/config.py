@@ -20,11 +20,15 @@ class DMRConfig:
     samples_per_symbol: int = SPS
     frontend_cutoff_hz: float = 9_500.0
     frontend_taps: int = 151
+    frontend_min_samples: int = 512
+    frontend_psd_nperseg: int = 4096
     nominal_deviation_hz: float = DEV_NOMINAL
     sync_threshold_voice: float = NCC_THRESHOLD_VOICE
     sync_threshold_data: float = NCC_THRESHOLD_DATA
     sync_peak_distance_samples: int = 800
     voice_burst_stride_samples: int = 2_880
+    burst_dedup_window_samples: int = 50
+    dedup_frequency_bucket_hz: float = 5_000.0
 
 
 DEFAULT_DMR_CONFIG = DMRConfig()

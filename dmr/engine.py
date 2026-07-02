@@ -8,7 +8,7 @@ from dmr.decoder import LateEntryCollector, decode_burst
 from dmr.dsp import _interp, adaptive_slice_bits, find_sync_positions, recover_burst
 
 
-BURST_STRIDE = 2880
+BURST_STRIDE = DEFAULT_DMR_CONFIG.voice_burst_stride_samples
 
 
 def _lock_voice_phase(y: np.ndarray, anchor: int, polarity: float, sync_type: str) -> float:
@@ -59,7 +59,7 @@ def _decode_dmr_loop(y: np.ndarray, config: DMRConfig | None = None) -> list[dic
     seen_bursts: set[tuple] = set()
 
     for center, polarity, sync_type in positions:
-        dedup_key = (round(center / 50), sync_type)
+        dedup_key = (round(center / config.burst_dedup_window_samples), sync_type)
         if dedup_key in seen_bursts:
             continue
         seen_bursts.add(dedup_key)

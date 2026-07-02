@@ -43,6 +43,8 @@ def frontend(
     cutoff: float = 9500.0,
     ntaps: int = 151,
     dev_nominal: float = DEV_NOMINAL,
+    min_samples: int = 512,
+    psd_nperseg: int = 4096,
 ) -> np.ndarray:
     """DDC (fo!=0) + channel filter + FM discriminator + DC removal."""
     return fsk_frontend(
@@ -52,6 +54,8 @@ def frontend(
         cutoff=cutoff,
         ntaps=ntaps,
         dev_nominal=dev_nominal,
+        min_samples=min_samples,
+        psd_nperseg=psd_nperseg,
     )
 
 

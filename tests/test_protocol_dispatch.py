@@ -2,6 +2,8 @@ from dataclasses import replace
 
 import numpy as np
 
+from dpmr.config import DPMRConfig
+from p25.config import P25Config
 import protocols
 
 
@@ -110,45 +112,59 @@ def test_protocol_spec_exposes_formatter_and_dedup_key():
 def test_decode_iq_uses_protocol_frontends(monkeypatch):
     calls = []
 
-    def shared_frontend(iq, sample_rate):
-        calls.append(("shared", sample_rate))
+    def shared_frontend(iq, sample_rate, config):
+        calls.append(("shared", sample_rate, config))
         return np.ones(3)
 
-    def dpmr_frontend(iq, sample_rate):
-        calls.append(("dpmr", sample_rate))
+    def dpmr_frontend(iq, sample_rate, config):
+        calls.append(("dpmr", sample_rate, config))
         return np.full(3, 2)
 
     patched = []
     for spec in protocols.PROTOCOL_REGISTRY:
         if spec.name in {"DMR", "P25"}:
-            patched.append(replace(spec, frontend_key="shared", frontend=shared_frontend))
+            patched.append(
+                replace(
+                    spec,
+                    config=f"{spec.name}-config",
+                    frontend_key="shared",
+                    frontend=shared_frontend,
+                )
+            )
         else:
-            patched.append(replace(spec, frontend_key="dpmr", frontend=dpmr_frontend))
+            patched.append(
+                replace(
+                    spec,
+                    config=f"{spec.name}-config",
+                    frontend_key="dpmr",
+                    frontend=dpmr_frontend,
+                )
+            )
 
     monkeypatch.setattr(protocols, "PROTOCOL_REGISTRY", tuple(patched))
     monkeypatch.setattr(
         protocols,
         "decode_dmr",
-        lambda y: [{"protocol": "DMR", "sum": int(np.sum(y))}],
+        lambda y, config: [{"protocol": "DMR", "sum": int(np.sum(y)), "config": config}],
     )
     monkeypatch.setattr(
         protocols,
         "decode_p25",
-        lambda y: [{"protocol": "P25", "sum": int(np.sum(y))}],
+        lambda y, config: [{"protocol": "P25", "sum": int(np.sum(y)), "config": config}],
     )
     monkeypatch.setattr(
         protocols,
         "decode_dpmr",
-        lambda y: [{"protocol": "dPMR", "sum": int(np.sum(y))}],
+        lambda y, config: [{"protocol": "dPMR", "sum": int(np.sum(y)), "config": config}],
     )
 
     result = protocols.decode_iq(np.zeros(5), sample_rate=123.0)
 
-    assert calls == [("shared", 123.0), ("dpmr", 123.0)]
+    assert calls == [("shared", 123.0, "DMR-config"), ("dpmr", 123.0, "dPMR-config")]
     assert result == [
-        {"protocol": "DMR", "sum": 3},
-        {"protocol": "P25", "sum": 3},
-        {"protocol": "dPMR", "sum": 6},
+        {"protocol": "DMR", "sum": 3, "config": "DMR-config"},
+        {"protocol": "P25", "sum": 3, "config": "P25-config"},
+        {"protocol": "dPMR", "sum": 6, "config": "dPMR-config"},
     ]
 
 
@@ -168,6 +184,26 @@ def test_postprocess_pdus_uses_protocol_specs(monkeypatch):
     )
 
     assert result == [{"protocol": "dPMR", "type": "DPMR_VOICE", "postprocessed": True}]
+
+
+def test_protocol_decoder_wrappers_pass_config(monkeypatch):
+    calls = []
+
+    def fake_p25(y, sps=10, sync_threshold=0.62):
+        calls.append(("p25", sps, sync_threshold))
+        return []
+
+    def fake_dpmr(y, sync_threshold=0.82):
+        calls.append(("dpmr", sync_threshold))
+        return []
+
+    monkeypatch.setattr(protocols, "_decode_p25", fake_p25)
+    monkeypatch.setattr(protocols, "_decode_dpmr", fake_dpmr)
+
+    protocols.decode_p25(np.zeros(3), P25Config(samples_per_symbol=8, sync_threshold=0.7))
+    protocols.decode_dpmr(np.zeros(3), DPMRConfig(sync_threshold=0.9))
+
+    assert calls == [("p25", 8, 0.7), ("dpmr", 0.9)]
 
 
 def test_print_results_accepts_p25_nid(capsys):

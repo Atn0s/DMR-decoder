@@ -50,13 +50,20 @@ class DPMRSymbolCandidate:
     ambiguous_symbols: int
 
 
-def frontend_dpmr(iq_dec: np.ndarray, fs: float = 48_000) -> np.ndarray:
+def frontend_dpmr(
+    iq_dec: np.ndarray,
+    fs: float = 48_000,
+    cutoff: float = DPMR_FRONTEND_CUTOFF,
+    ntaps: int = 151,
+    dev_nominal: float = DPMR_DEV_NOMINAL,
+) -> np.ndarray:
     return fsk_frontend(
         iq_dec,
         fo=0.0,
         fs=fs,
-        cutoff=DPMR_FRONTEND_CUTOFF,
-        dev_nominal=DPMR_DEV_NOMINAL,
+        cutoff=cutoff,
+        ntaps=ntaps,
+        dev_nominal=dev_nominal,
     )
 
 

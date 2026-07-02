@@ -36,8 +36,14 @@ def adaptive_slice_bits(seg: np.ndarray) -> bitarray:
     return bitarray(bits)
 
 
-def frontend(iq_dec: np.ndarray, fo: float = 0.0, fs: float = Fs_dec,
-             cutoff: float = 9500.0, ntaps: int = 151) -> np.ndarray:
+def frontend(
+    iq_dec: np.ndarray,
+    fo: float = 0.0,
+    fs: float = Fs_dec,
+    cutoff: float = 9500.0,
+    ntaps: int = 151,
+    dev_nominal: float = DEV_NOMINAL,
+) -> np.ndarray:
     """DDC (fo!=0) + channel filter + FM discriminator + DC removal."""
     return fsk_frontend(
         iq_dec,
@@ -45,7 +51,7 @@ def frontend(iq_dec: np.ndarray, fo: float = 0.0, fs: float = Fs_dec,
         fs=fs,
         cutoff=cutoff,
         ntaps=ntaps,
-        dev_nominal=DEV_NOMINAL,
+        dev_nominal=dev_nominal,
     )
 
 

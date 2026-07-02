@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import inspect
 from dataclasses import dataclass
 
 import numpy as np
@@ -16,7 +17,7 @@ from dpmr.decoder import (
 )
 from dpmr.dsp import frontend_dpmr as _frontend_dpmr
 from p25.config import DEFAULT_P25_CONFIG
-from p25.decoder import decode as decode_p25
+from p25.decoder import decode as _decode_p25
 
 
 @dataclass(frozen=True)
@@ -26,14 +27,31 @@ class ProtocolSpec:
     decode_name: str
     config: object
     frontend_key: str
-    frontend: Callable[[np.ndarray, float], np.ndarray]
+    frontend: Callable[[np.ndarray, float, object], np.ndarray]
     postprocess: Callable[[list[dict]], list[dict]]
     dedup_key: Callable[[dict], tuple]
     formatter: Callable[[dict, str], str]
 
 
-def _frontend_dmr_p25(iq_dec: np.ndarray, sample_rate: float) -> np.ndarray:
-    return _frontend_c4fm(iq_dec, fo=0.0, fs=sample_rate)
+def _frontend_dmr_p25(iq_dec: np.ndarray, sample_rate: float, config: object) -> np.ndarray:
+    return _frontend_c4fm(
+        iq_dec,
+        fo=0.0,
+        fs=sample_rate,
+        cutoff=config.frontend_cutoff_hz,
+        ntaps=config.frontend_taps,
+        dev_nominal=config.nominal_deviation_hz,
+    )
+
+
+def _frontend_dpmr_configured(iq_dec: np.ndarray, sample_rate: float, config: object) -> np.ndarray:
+    return _frontend_dpmr(
+        iq_dec,
+        fs=sample_rate,
+        cutoff=config.frontend_cutoff_hz,
+        ntaps=config.frontend_taps,
+        dev_nominal=config.nominal_deviation_hz,
+    )
 
 
 def _postprocess_identity(pdus: list[dict]) -> list[dict]:
@@ -233,7 +251,7 @@ PROTOCOL_REGISTRY: tuple[ProtocolSpec, ...] = (
         "decode_dpmr",
         DEFAULT_DPMR_CONFIG,
         "dpmr_4fsk",
-        _frontend_dpmr,
+        _frontend_dpmr_configured,
         _filter_stable_dpmr_pdus,
         _dpmr_dedup_key,
         format_dpmr_pdu,
@@ -286,8 +304,30 @@ def decode_dmr(y: np.ndarray) -> list[dict]:
     return pdus
 
 
-def decode_dpmr(y: np.ndarray) -> list[dict]:
-    return _decode_dpmr(y)
+def decode_p25(y: np.ndarray, config: object | None = None) -> list[dict]:
+    if config is None:
+        config = DEFAULT_P25_CONFIG
+    return _decode_p25(
+        y,
+        sps=config.samples_per_symbol,
+        sync_threshold=config.sync_threshold,
+    )
+
+
+def decode_dpmr(y: np.ndarray, config: object | None = None) -> list[dict]:
+    if config is None:
+        config = DEFAULT_DPMR_CONFIG
+    return _decode_dpmr(y, sync_threshold=config.sync_threshold)
+
+
+def _call_decoder(decoder: Callable, y: np.ndarray, config: object) -> list[dict]:
+    params = list(inspect.signature(decoder).parameters.values())
+    accepts_config = any(param.kind == inspect.Parameter.VAR_POSITIONAL for param in params)
+    if not accepts_config:
+        accepts_config = len(params) >= 2
+    if accepts_config:
+        return decoder(y, config)
+    return decoder(y)
 
 
 def decode_all(
@@ -302,7 +342,7 @@ def decode_all(
         if spec.name not in enabled:
             continue
         decoder = globals()[spec.decode_name]
-        results.extend(decoder(frontends.get(spec.name, y)))
+        results.extend(_call_decoder(decoder, frontends.get(spec.name, y), spec.config))
     return results
 
 
@@ -318,9 +358,9 @@ def decode_iq(
         if spec.name not in enabled:
             continue
         if spec.frontend_key not in frontends:
-            frontends[spec.frontend_key] = spec.frontend(iq_dec, sample_rate)
+            frontends[spec.frontend_key] = spec.frontend(iq_dec, sample_rate, spec.config)
         decoder = globals()[spec.decode_name]
-        results.extend(decoder(frontends[spec.frontend_key]))
+        results.extend(_call_decoder(decoder, frontends[spec.frontend_key], spec.config))
     return results
 
 

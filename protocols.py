@@ -5,13 +5,17 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from common.config import DEFAULT_RADIO_CONFIG
+from dmr.config import DEFAULT_DMR_CONFIG
 import dmr.offline as dmr_offline
 from dmr.dsp import frontend as _frontend_c4fm
+from dpmr.config import DEFAULT_DPMR_CONFIG
 from dpmr.decoder import (
     decode as _decode_dpmr,
     filter_stable_pdus as _filter_stable_dpmr_pdus,
 )
 from dpmr.dsp import frontend_dpmr as _frontend_dpmr
+from p25.config import DEFAULT_P25_CONFIG
 from p25.decoder import decode as decode_p25
 
 
@@ -20,6 +24,7 @@ class ProtocolSpec:
     name: str
     aliases: tuple[str, ...]
     decode_name: str
+    config: object
     frontend_key: str
     frontend: Callable[[np.ndarray, float], np.ndarray]
     postprocess: Callable[[list[dict]], list[dict]]
@@ -204,6 +209,7 @@ PROTOCOL_REGISTRY: tuple[ProtocolSpec, ...] = (
         "DMR",
         ("dmr",),
         "decode_dmr",
+        DEFAULT_DMR_CONFIG,
         "c4fm_4fsk",
         _frontend_dmr_p25,
         _postprocess_identity,
@@ -214,6 +220,7 @@ PROTOCOL_REGISTRY: tuple[ProtocolSpec, ...] = (
         "P25",
         ("p25",),
         "decode_p25",
+        DEFAULT_P25_CONFIG,
         "c4fm_4fsk",
         _frontend_dmr_p25,
         _postprocess_identity,
@@ -224,6 +231,7 @@ PROTOCOL_REGISTRY: tuple[ProtocolSpec, ...] = (
         "dPMR",
         ("dpmr",),
         "decode_dpmr",
+        DEFAULT_DPMR_CONFIG,
         "dpmr_4fsk",
         _frontend_dpmr,
         _filter_stable_dpmr_pdus,
@@ -301,7 +309,7 @@ def decode_all(
 def decode_iq(
     iq_dec: np.ndarray,
     protocol_names: list[str] | tuple[str, ...] | set[str] | None = None,
-    sample_rate: float = 48_000.0,
+    sample_rate: float = DEFAULT_RADIO_CONFIG.target_sample_rate_hz,
 ) -> list[dict]:
     enabled = normalize_protocol_names(protocol_names)
     frontends: dict[str, np.ndarray] = {}

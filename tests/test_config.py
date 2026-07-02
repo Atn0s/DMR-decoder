@@ -1,0 +1,41 @@
+from common.config import DEFAULT_RADIO_CONFIG, DEFAULT_REALTIME_CONFIG
+from dmr.config import DEFAULT_DMR_CONFIG
+from dmr.constants import DOWN_FACTOR, Fs_dec, Fs_wide, UP_FACTOR
+from dpmr.config import DEFAULT_DPMR_CONFIG
+from p25.config import DEFAULT_P25_CONFIG
+
+import protocols
+import scanner
+
+
+def test_radio_config_matches_legacy_scanner_constants():
+    assert DEFAULT_RADIO_CONFIG.target_sample_rate_hz == Fs_dec
+    assert DEFAULT_RADIO_CONFIG.wideband_sample_rate_hz == Fs_wide
+    assert DEFAULT_RADIO_CONFIG.wideband_resample_up == UP_FACTOR
+    assert DEFAULT_RADIO_CONFIG.wideband_resample_down == DOWN_FACTOR
+    assert DEFAULT_RADIO_CONFIG.psd_peak_threshold_db == scanner.PSD_PEAK_THRESHOLD_DB
+    assert DEFAULT_RADIO_CONFIG.target_sample_rate_hz == scanner.Fs_dec
+    assert DEFAULT_RADIO_CONFIG.wideband_sample_rate_hz == scanner.Fs_wide
+
+
+def test_protocol_specs_expose_default_configs():
+    assert protocols.spec_for_protocol("dmr").config is DEFAULT_DMR_CONFIG
+    assert protocols.spec_for_protocol("p25").config is DEFAULT_P25_CONFIG
+    assert protocols.spec_for_protocol("dpmr").config is DEFAULT_DPMR_CONFIG
+
+
+def test_protocol_config_defaults_keep_current_symbol_rates():
+    assert DEFAULT_DMR_CONFIG.symbol_rate_hz == 4_800.0
+    assert DEFAULT_P25_CONFIG.symbol_rate_hz == 4_800.0
+    assert DEFAULT_DPMR_CONFIG.symbol_rate_hz == 2_400.0
+    assert DEFAULT_DMR_CONFIG.target_sample_rate_hz == 48_000.0
+    assert DEFAULT_P25_CONFIG.target_sample_rate_hz == 48_000.0
+    assert DEFAULT_DPMR_CONFIG.target_sample_rate_hz == 48_000.0
+
+
+def test_realtime_config_captures_current_defaults():
+    assert DEFAULT_REALTIME_CONFIG.active_threshold_db == 15.0
+    assert DEFAULT_REALTIME_CONFIG.channel_grid_hz == 12_500.0
+    assert DEFAULT_REALTIME_CONFIG.close_hysteresis_windows == 3
+    assert DEFAULT_REALTIME_CONFIG.call_timeout_windows == 5
+    assert DEFAULT_REALTIME_CONFIG.fo_bucket_hz == 5_000.0

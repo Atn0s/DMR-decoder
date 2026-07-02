@@ -5,13 +5,21 @@ import scipy.signal as signal
 from math import gcd
 
 import protocols
+from common.config import DEFAULT_RADIO_CONFIG
 from common.io import detect_sample_rate as _detect_sample_rate, read_rawiq
-from dmr.constants import Fs_wide, Fs_dec, UP_FACTOR, DOWN_FACTOR
 from dmr.dsp import frontend  # Backward-compatible scanner.frontend export.
 from dmr.offline import _decode_dmr_loop as _dmr_decode_loop
 
 
 SUPPORTED_PROTOCOLS = protocols.SUPPORTED_PROTOCOLS
+RADIO_CONFIG = DEFAULT_RADIO_CONFIG
+
+# Backward-compatible module-level names. New code should use RADIO_CONFIG.
+Fs_dec = RADIO_CONFIG.target_sample_rate_hz
+Fs_wide = RADIO_CONFIG.wideband_sample_rate_hz
+UP_FACTOR = RADIO_CONFIG.wideband_resample_up
+DOWN_FACTOR = RADIO_CONFIG.wideband_resample_down
+PSD_PEAK_THRESHOLD_DB = RADIO_CONFIG.psd_peak_threshold_db
 
 
 def detect_sample_rate(path: str) -> int | None:
@@ -19,16 +27,24 @@ def detect_sample_rate(path: str) -> int | None:
     return _detect_sample_rate(path)
 
 
-PSD_PEAK_THRESHOLD_DB = 15  # dB above median noise floor for signal candidate detection
 # At 48kHz, same-slot consecutive voice bursts are separated by one full 60ms TDMA frame = 2880 samples
 def _psd_blind_search(iq: np.ndarray, fs: float) -> list[float]:
     """Find signal candidates in wideband IQ via Welch PSD peak detection."""
-    f, psd = signal.welch(iq, fs=fs, nperseg=4096, return_onesided=False)
+    f, psd = signal.welch(
+        iq,
+        fs=fs,
+        nperseg=RADIO_CONFIG.psd_nperseg,
+        return_onesided=False,
+    )
     f = np.fft.fftshift(f)
     psd = np.fft.fftshift(psd)
     psd_db = 10 * np.log10(psd + 1e-12)
     nf = np.median(psd_db)
-    peaks, _ = signal.find_peaks(psd_db, height=nf + PSD_PEAK_THRESHOLD_DB, distance=20)
+    peaks, _ = signal.find_peaks(
+        psd_db,
+        height=nf + RADIO_CONFIG.psd_peak_threshold_db,
+        distance=RADIO_CONFIG.psd_peak_min_distance_bins,
+    )
     return [float(f[p]) for p in peaks]
 
 
@@ -117,7 +133,7 @@ def scan_file(path: str, freq_list: list[float] | None = None,
         all_pdus = []
         for fo in freq_list:
             all_pdus.extend(_process_candidate(iq, fo, fs_in, enabled_protocols))
-    elif fs is None or fs > 200_000:
+    elif fs is None or fs > RADIO_CONFIG.narrowband_max_sample_rate_hz:
         fs_in = fs or Fs_wide
         fos = _psd_blind_search(iq, fs_in)
         all_pdus = []

@@ -4,8 +4,8 @@ from math import gcd
 
 from core.burst_type import Fs_dec
 from core.dsp import frontend
+import protocols
 from radio.pdu import set_pdu_meta
-import scanner
 
 
 def _decimation_factors(source_sample_rate: float, target: float = Fs_dec
@@ -21,7 +21,7 @@ def _decimation_factors(source_sample_rate: float, target: float = Fs_dec
 def decode_window(window_iq: np.ndarray, fo_hz: float, window_id: int,
                   source_sample_rate: float) -> list[dict]:
     """Decode one wideband IQ window at a given frequency offset.
-    DDC(fo) -> resample to 48kHz -> frontend -> scanner._decode_loop.
+    DDC(fo) -> resample to 48kHz -> frontend -> protocol registry.
     Pure function (no shared state) so it can run in a multiprocessing.Pool.
     Each returned PDU is tagged with _fo_hz and _window_id.
     Exceptions are swallowed -> returns [] so one bad window can't kill the pool."""
@@ -35,7 +35,7 @@ def decode_window(window_iq: np.ndarray, fo_hz: float, window_id: int,
         if len(iq_dec) < 512:
             return []
         y = frontend(iq_dec, fo=0.0, fs=Fs_dec)
-        pdus = scanner._decode_loop(y)
+        pdus = protocols.decode_all(y)
         for pdu in pdus:
             set_pdu_meta(pdu, "fo_hz", fo_hz)
             set_pdu_meta(pdu, "window_id", window_id)

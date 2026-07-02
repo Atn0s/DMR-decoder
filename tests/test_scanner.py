@@ -128,18 +128,3 @@ def test_write_json_accepts_pdu_dataclass(tmp_path):
             "_fo_hz": 1250.0,
         }
     ]
-
-
-def test_scanner_dmr_decode_wrapper_uses_engine(monkeypatch):
-    calls = []
-
-    def fake_engine_decode(y, config=None):
-        calls.append((y, config))
-        return [{"protocol": "DMR", "type": "LC_HEADER"}]
-
-    monkeypatch.setattr(scanner, "_engine_decode_dmr_loop", fake_engine_decode)
-
-    result = scanner._decode_dmr_loop("symbols", config="config")
-
-    assert result == [{"protocol": "DMR", "type": "LC_HEADER"}]
-    assert calls == [("symbols", "config")]

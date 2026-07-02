@@ -13,8 +13,8 @@ class WidebandScanner:
     sub-band, feeding a SHARED aggregator keyed on absolute RF frequency.
 
     Offline correctness path: the whole capture is read and channelized, then each
-    sub-band is windowed and decoded. Decode core (scanner._decode_loop via
-    worker.decode_window) is reused unchanged."""
+    sub-band is windowed and decoded through worker.decode_window and the protocol
+    registry."""
 
     def __init__(self, source, num_subbands: int = 32, taps_per_phase: int = 12,
                  oversample: int = 2, window_sec: float = 1.0, step_sec: float = 0.9,

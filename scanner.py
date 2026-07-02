@@ -1,14 +1,13 @@
 import json
 import os
 import numpy as np
-import scipy.signal as signal
-from math import gcd
 
 import protocols
 from common.config import DEFAULT_RADIO_CONFIG
 from common.io import detect_sample_rate as _detect_sample_rate, read_rawiq
 from dmr.dsp import frontend  # Backward-compatible scanner.frontend export.
 from dmr.offline import _decode_dmr_loop as _dmr_decode_loop
+from radio import pipeline as radio_pipeline
 
 
 SUPPORTED_PROTOCOLS = protocols.SUPPORTED_PROTOCOLS
@@ -30,22 +29,7 @@ def detect_sample_rate(path: str) -> int | None:
 # At 48kHz, same-slot consecutive voice bursts are separated by one full 60ms TDMA frame = 2880 samples
 def _psd_blind_search(iq: np.ndarray, fs: float) -> list[float]:
     """Find signal candidates in wideband IQ via Welch PSD peak detection."""
-    f, psd = signal.welch(
-        iq,
-        fs=fs,
-        nperseg=RADIO_CONFIG.psd_nperseg,
-        return_onesided=False,
-    )
-    f = np.fft.fftshift(f)
-    psd = np.fft.fftshift(psd)
-    psd_db = 10 * np.log10(psd + 1e-12)
-    nf = np.median(psd_db)
-    peaks, _ = signal.find_peaks(
-        psd_db,
-        height=nf + RADIO_CONFIG.psd_peak_threshold_db,
-        distance=RADIO_CONFIG.psd_peak_min_distance_bins,
-    )
-    return [float(f[p]) for p in peaks]
+    return radio_pipeline.psd_blind_search(iq, fs, RADIO_CONFIG)
 
 
 def _decode_dmr_loop(y: np.ndarray, config: object | None = None) -> list[dict]:
@@ -72,10 +56,7 @@ def _decode_protocol_frontends(
 
 
 def _resample_factors(source_sample_rate: float, target: float = Fs_dec) -> tuple[int, int]:
-    up = int(round(target))
-    down = int(round(source_sample_rate))
-    g = gcd(up, down)
-    return up // g, down // g
+    return radio_pipeline.resample_factors(source_sample_rate, target)
 
 
 def _process_candidate(
@@ -85,19 +66,7 @@ def _process_candidate(
     protocol_names: set[str] | None = None,
 ) -> list[dict]:
     """DDC + resample + frontend, then decode; tags each PDU with _fo_hz."""
-    t = np.arange(len(iq)) / fs_in
-    iq_shifted = iq * np.exp(-1j * 2 * np.pi * fo * t)
-    if abs(fs_in - Fs_dec) < 1:
-        iq_dec = iq_shifted
-    elif abs(fs_in - Fs_wide) < 1:
-        iq_dec = signal.resample_poly(iq_shifted, UP_FACTOR, DOWN_FACTOR)
-    else:
-        up, down = _resample_factors(fs_in)
-        iq_dec = signal.resample_poly(iq_shifted, up, down)
-    results = protocols.decode_iq(iq_dec, protocol_names=protocol_names, sample_rate=Fs_dec)
-    for pdu in results:
-        pdu["_fo_hz"] = fo
-    return results
+    return radio_pipeline.process_candidate(iq, fo, fs_in, protocol_names, RADIO_CONFIG)
 
 
 def _process_narrowband(
@@ -106,13 +75,7 @@ def _process_narrowband(
     protocol_names: set[str] | None = None,
 ) -> list[dict]:
     """Resample + frontend for a narrowband stream already at or near 48kHz, then decode."""
-    fs = fs_in or Fs_dec
-    if abs(fs - Fs_dec) < 1:
-        iq_dec = iq
-    else:
-        up, down = _resample_factors(fs)
-        iq_dec = signal.resample_poly(iq, up, down)
-    return protocols.decode_iq(iq_dec, protocol_names=protocol_names, sample_rate=Fs_dec)
+    return radio_pipeline.process_narrowband(iq, fs_in, protocol_names, RADIO_CONFIG)
 
 
 def scan_file(path: str, freq_list: list[float] | None = None,
@@ -128,24 +91,13 @@ def scan_file(path: str, freq_list: list[float] | None = None,
     iq = read_rawiq(path)
     fs = detect_sample_rate(path)
 
-    if freq_list is not None:
-        fs_in = fs or Fs_wide
-        all_pdus = []
-        for fo in freq_list:
-            all_pdus.extend(_process_candidate(iq, fo, fs_in, enabled_protocols))
-    elif fs is None or fs > RADIO_CONFIG.narrowband_max_sample_rate_hz:
-        fs_in = fs or Fs_wide
-        fos = _psd_blind_search(iq, fs_in)
-        all_pdus = []
-        for fo in fos:
-            all_pdus.extend(_process_candidate(iq, fo, fs_in, enabled_protocols))
-    else:
-        all_pdus = _process_narrowband(iq, fs, enabled_protocols)
-
-    all_pdus = protocols.postprocess_pdus(all_pdus, enabled_protocols)
-
-    # Cross-candidate dedup: protocol-specific keys live in ProtocolSpec.
-    unique = protocols.deduplicate_pdus(all_pdus)
+    unique = radio_pipeline.scan_iq(
+        iq,
+        fs,
+        freq_list=freq_list,
+        protocol_names=enabled_protocols,
+        radio_config=RADIO_CONFIG,
+    )
 
     _print_results(unique)
     if output_json:

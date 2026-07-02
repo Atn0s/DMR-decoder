@@ -1,6 +1,7 @@
 import os
 import pytest
 from scanner import detect_sample_rate, scan_file
+import scanner
 
 
 def test_detect_sample_rate_known():
@@ -60,3 +61,38 @@ def test_scan_file_json_output(tmp_path):
     # raw_bits should NOT appear in JSON output
     for item in data:
         assert "raw_bits" not in item
+
+
+def test_scan_file_delegates_iq_processing_to_radio_pipeline(monkeypatch):
+    iq = object()
+    pdus = [{"protocol": "DMR", "type": "LC_HEADER"}]
+    calls = []
+
+    monkeypatch.setattr(scanner, "read_rawiq", lambda path: iq)
+    monkeypatch.setattr(scanner, "detect_sample_rate", lambda path: 48_000)
+    monkeypatch.setattr(scanner, "_print_results", lambda result: calls.append(("print", result)))
+
+    def fake_scan_iq(iq_arg, sample_rate, freq_list, protocol_names, radio_config):
+        calls.append((
+            "scan_iq",
+            iq_arg is iq,
+            sample_rate,
+            freq_list,
+            tuple(sorted(protocol_names)),
+            radio_config,
+        ))
+        return pdus
+
+    monkeypatch.setattr(scanner.radio_pipeline, "scan_iq", fake_scan_iq)
+
+    result = scanner.scan_file(
+        "example.rawiq",
+        freq_list=[1000.0],
+        protocol_names=["dmr"],
+    )
+
+    assert result is pdus
+    assert calls == [
+        ("scan_iq", True, 48_000, [1000.0], ("DMR",), scanner.RADIO_CONFIG),
+        ("print", pdus),
+    ]

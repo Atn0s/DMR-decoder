@@ -6,7 +6,12 @@ from dataclasses import dataclass
 import numpy as np
 
 import dmr.offline as dmr_offline
-from dpmr.decoder import decode as _decode_dpmr
+from dmr.dsp import frontend as _frontend_c4fm
+from dpmr.decoder import (
+    decode as _decode_dpmr,
+    filter_stable_pdus as _filter_stable_dpmr_pdus,
+)
+from dpmr.dsp import frontend_dpmr as _frontend_dpmr
 from p25.decoder import decode as decode_p25
 
 
@@ -15,8 +20,19 @@ class ProtocolSpec:
     name: str
     aliases: tuple[str, ...]
     decode_name: str
+    frontend_key: str
+    frontend: Callable[[np.ndarray, float], np.ndarray]
+    postprocess: Callable[[list[dict]], list[dict]]
     dedup_key: Callable[[dict], tuple]
     formatter: Callable[[dict, str], str]
+
+
+def _frontend_dmr_p25(iq_dec: np.ndarray, sample_rate: float) -> np.ndarray:
+    return _frontend_c4fm(iq_dec, fo=0.0, fs=sample_rate)
+
+
+def _postprocess_identity(pdus: list[dict]) -> list[dict]:
+    return pdus
 
 
 def _dmr_dedup_key(pdu: dict) -> tuple:
@@ -184,9 +200,36 @@ def _p25_detail(pdu: dict) -> str:
 
 
 PROTOCOL_REGISTRY: tuple[ProtocolSpec, ...] = (
-    ProtocolSpec("DMR", ("dmr",), "decode_dmr", _dmr_dedup_key, format_dmr_pdu),
-    ProtocolSpec("P25", ("p25",), "decode_p25", _p25_dedup_key, format_p25_pdu),
-    ProtocolSpec("dPMR", ("dpmr",), "decode_dpmr", _dpmr_dedup_key, format_dpmr_pdu),
+    ProtocolSpec(
+        "DMR",
+        ("dmr",),
+        "decode_dmr",
+        "c4fm_4fsk",
+        _frontend_dmr_p25,
+        _postprocess_identity,
+        _dmr_dedup_key,
+        format_dmr_pdu,
+    ),
+    ProtocolSpec(
+        "P25",
+        ("p25",),
+        "decode_p25",
+        "c4fm_4fsk",
+        _frontend_dmr_p25,
+        _postprocess_identity,
+        _p25_dedup_key,
+        format_p25_pdu,
+    ),
+    ProtocolSpec(
+        "dPMR",
+        ("dpmr",),
+        "decode_dpmr",
+        "dpmr_4fsk",
+        _frontend_dpmr,
+        _filter_stable_dpmr_pdus,
+        _dpmr_dedup_key,
+        format_dpmr_pdu,
+    ),
 )
 
 SUPPORTED_PROTOCOLS = tuple(spec.name for spec in PROTOCOL_REGISTRY)
@@ -253,6 +296,36 @@ def decode_all(
         decoder = globals()[spec.decode_name]
         results.extend(decoder(frontends.get(spec.name, y)))
     return results
+
+
+def decode_iq(
+    iq_dec: np.ndarray,
+    protocol_names: list[str] | tuple[str, ...] | set[str] | None = None,
+    sample_rate: float = 48_000.0,
+) -> list[dict]:
+    enabled = normalize_protocol_names(protocol_names)
+    frontends: dict[str, np.ndarray] = {}
+    results: list[dict] = []
+    for spec in PROTOCOL_REGISTRY:
+        if spec.name not in enabled:
+            continue
+        if spec.frontend_key not in frontends:
+            frontends[spec.frontend_key] = spec.frontend(iq_dec, sample_rate)
+        decoder = globals()[spec.decode_name]
+        results.extend(decoder(frontends[spec.frontend_key]))
+    return results
+
+
+def postprocess_pdus(
+    pdus: list[dict],
+    protocol_names: list[str] | tuple[str, ...] | set[str] | None = None,
+) -> list[dict]:
+    enabled = normalize_protocol_names(protocol_names)
+    processed = pdus
+    for spec in PROTOCOL_REGISTRY:
+        if spec.name in enabled:
+            processed = spec.postprocess(processed)
+    return processed
 
 
 def dedup_key(pdu: dict) -> tuple:

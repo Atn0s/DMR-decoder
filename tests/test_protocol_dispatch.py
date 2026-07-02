@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 import numpy as np
 
 import protocols
@@ -103,6 +105,69 @@ def test_protocol_spec_exposes_formatter_and_dedup_key():
 
     assert spec.dedup_key(pdu) == ("P25", 0x293, "P25_NID", 1)
     assert spec.formatter(pdu, "").startswith("[P25_NID")
+
+
+def test_decode_iq_uses_protocol_frontends(monkeypatch):
+    calls = []
+
+    def shared_frontend(iq, sample_rate):
+        calls.append(("shared", sample_rate))
+        return np.ones(3)
+
+    def dpmr_frontend(iq, sample_rate):
+        calls.append(("dpmr", sample_rate))
+        return np.full(3, 2)
+
+    patched = []
+    for spec in protocols.PROTOCOL_REGISTRY:
+        if spec.name in {"DMR", "P25"}:
+            patched.append(replace(spec, frontend_key="shared", frontend=shared_frontend))
+        else:
+            patched.append(replace(spec, frontend_key="dpmr", frontend=dpmr_frontend))
+
+    monkeypatch.setattr(protocols, "PROTOCOL_REGISTRY", tuple(patched))
+    monkeypatch.setattr(
+        protocols,
+        "decode_dmr",
+        lambda y: [{"protocol": "DMR", "sum": int(np.sum(y))}],
+    )
+    monkeypatch.setattr(
+        protocols,
+        "decode_p25",
+        lambda y: [{"protocol": "P25", "sum": int(np.sum(y))}],
+    )
+    monkeypatch.setattr(
+        protocols,
+        "decode_dpmr",
+        lambda y: [{"protocol": "dPMR", "sum": int(np.sum(y))}],
+    )
+
+    result = protocols.decode_iq(np.zeros(5), sample_rate=123.0)
+
+    assert calls == [("shared", 123.0), ("dpmr", 123.0)]
+    assert result == [
+        {"protocol": "DMR", "sum": 3},
+        {"protocol": "P25", "sum": 3},
+        {"protocol": "dPMR", "sum": 6},
+    ]
+
+
+def test_postprocess_pdus_uses_protocol_specs(monkeypatch):
+    def mark_dpmr(pdus):
+        return [dict(pdu, postprocessed=True) for pdu in pdus]
+
+    patched = [
+        replace(spec, postprocess=mark_dpmr) if spec.name == "dPMR" else spec
+        for spec in protocols.PROTOCOL_REGISTRY
+    ]
+    monkeypatch.setattr(protocols, "PROTOCOL_REGISTRY", tuple(patched))
+
+    result = protocols.postprocess_pdus(
+        [{"protocol": "dPMR", "type": "DPMR_VOICE"}],
+        protocol_names={"dpmr"},
+    )
+
+    assert result == [{"protocol": "dPMR", "type": "DPMR_VOICE", "postprocessed": True}]
 
 
 def test_print_results_accepts_p25_nid(capsys):

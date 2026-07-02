@@ -7,10 +7,8 @@ from math import gcd
 import protocols
 from common.io import detect_sample_rate as _detect_sample_rate, read_rawiq
 from dmr.constants import Fs_wide, Fs_dec, UP_FACTOR, DOWN_FACTOR
-from dmr.dsp import frontend
+from dmr.dsp import frontend  # Backward-compatible scanner.frontend export.
 from dmr.offline import _decode_dmr_loop as _dmr_decode_loop
-from dpmr.decoder import filter_stable_pdus
-from dpmr.dsp import frontend_dpmr
 
 
 SUPPORTED_PROTOCOLS = protocols.SUPPORTED_PROTOCOLS
@@ -80,10 +78,7 @@ def _process_candidate(
     else:
         up, down = _resample_factors(fs_in)
         iq_dec = signal.resample_poly(iq_shifted, up, down)
-    y = frontend(iq_dec, fo=0.0, fs=Fs_dec)
-    y_dpmr = frontend_dpmr(iq_dec, fs=Fs_dec)
-
-    results = _decode_protocol_frontends(y, y_dpmr, protocol_names)
+    results = protocols.decode_iq(iq_dec, protocol_names=protocol_names, sample_rate=Fs_dec)
     for pdu in results:
         pdu["_fo_hz"] = fo
     return results
@@ -101,9 +96,7 @@ def _process_narrowband(
     else:
         up, down = _resample_factors(fs)
         iq_dec = signal.resample_poly(iq, up, down)
-    y = frontend(iq_dec, fo=0.0, fs=Fs_dec)
-    y_dpmr = frontend_dpmr(iq_dec, fs=Fs_dec)
-    return _decode_protocol_frontends(y, y_dpmr, protocol_names)
+    return protocols.decode_iq(iq_dec, protocol_names=protocol_names, sample_rate=Fs_dec)
 
 
 def scan_file(path: str, freq_list: list[float] | None = None,
@@ -133,9 +126,9 @@ def scan_file(path: str, freq_list: list[float] | None = None,
     else:
         all_pdus = _process_narrowband(iq, fs, enabled_protocols)
 
-    all_pdus = filter_stable_pdus(all_pdus)
+    all_pdus = protocols.postprocess_pdus(all_pdus, enabled_protocols)
 
-    # Cross-candidate dedup: protocol-specific keys live in protocols.py.
+    # Cross-candidate dedup: protocol-specific keys live in ProtocolSpec.
     unique = protocols.deduplicate_pdus(all_pdus)
 
     _print_results(unique)

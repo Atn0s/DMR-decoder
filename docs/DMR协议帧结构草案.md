@@ -448,12 +448,12 @@ signalling fragment
 ```text
 rawiq file
   -> common.io.read_rawiq()
-  -> scanner/dmr.offline 重采样到 48 kHz
-  -> dmr.dsp.frontend()
+  -> scanner / radio.pipeline 重采样到 48 kHz
+  -> dmr.plugin 调用 dmr.dsp.frontend()
        FM 鉴频
        低通滤波
        nominal deviation 归一化
-  -> dmr.offline._decode_dmr_loop()
+  -> dmr.engine._decode_dmr_loop()
        find_sync_positions()
        Data Sync -> decode_burst()
        Voice Sync -> LateEntryCollector

@@ -6,7 +6,7 @@ import protocols
 from common.config import DEFAULT_RADIO_CONFIG
 from common.io import detect_sample_rate as _detect_sample_rate, read_rawiq
 from dmr.dsp import frontend  # Backward-compatible scanner.frontend export.
-from dmr.offline import _decode_dmr_loop as _dmr_decode_loop
+from dmr.engine import _decode_dmr_loop as _engine_decode_dmr_loop
 from radio import pipeline as radio_pipeline
 
 
@@ -34,7 +34,7 @@ def _psd_blind_search(iq: np.ndarray, fs: float) -> list[float]:
 
 def _decode_dmr_loop(y: np.ndarray, config: object | None = None) -> list[dict]:
     """Backward-compatible wrapper for the relocated DMR decode loop."""
-    return _dmr_decode_loop(y, config)
+    return _engine_decode_dmr_loop(y, config)
 
 
 def _decode_loop(y: np.ndarray) -> list[dict]:

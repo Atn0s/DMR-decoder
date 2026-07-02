@@ -8,7 +8,7 @@ from dmr.constants import (
     NCC_THRESHOLD_VOICE,
     UP_FACTOR,
 )
-from dmr.offline import BURST_STRIDE
+from dmr.engine import BURST_STRIDE
 from dpmr.config import DEFAULT_DPMR_CONFIG
 from p25.config import DEFAULT_P25_CONFIG
 

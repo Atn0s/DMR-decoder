@@ -2,7 +2,7 @@ import numpy as np
 from bitarray import bitarray
 from core.decoder import decode_burst, LateEntryCollector
 from dmr.config import DMRConfig
-import dmr.offline as dmr_offline
+import dmr.engine as dmr_engine
 
 
 def test_decode_burst_garbage_returns_none():
@@ -122,9 +122,9 @@ def test_dmr_decode_loop_passes_config_to_sync_and_voice_recovery(monkeypatch):
         calls.append(("voice", anchor, j, ph, polarity, burst_stride_samples))
         return None
 
-    monkeypatch.setattr(dmr_offline, "find_sync_positions", fake_find_sync_positions)
-    monkeypatch.setattr(dmr_offline, "_lock_voice_phase", lambda *args: 0.25)
-    monkeypatch.setattr(dmr_offline, "_recover_stepped_burst", fake_recover_stepped_burst)
+    monkeypatch.setattr(dmr_engine, "find_sync_positions", fake_find_sync_positions)
+    monkeypatch.setattr(dmr_engine, "_lock_voice_phase", lambda *args: 0.25)
+    monkeypatch.setattr(dmr_engine, "_recover_stepped_burst", fake_recover_stepped_burst)
 
     config = DMRConfig(
         sync_threshold_voice=0.72,
@@ -133,7 +133,7 @@ def test_dmr_decode_loop_passes_config_to_sync_and_voice_recovery(monkeypatch):
         voice_burst_stride_samples=4320,
     )
 
-    result = dmr_offline._decode_dmr_loop(np.zeros(10), config)
+    result = dmr_engine._decode_dmr_loop(np.zeros(10), config)
 
     assert result == []
     assert calls == [

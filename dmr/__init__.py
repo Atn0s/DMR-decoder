@@ -1,6 +1,5 @@
 """DMR metadata decoder package."""
 
-from dmr.offline import decode
+from dmr.engine import decode
 
 __all__ = ["decode"]
-

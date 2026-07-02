@@ -1,5 +1,6 @@
 import numpy as np
 
+import dmr.engine as dmr_engine
 import dmr.offline as dmr_offline
 from radio import pipeline
 
@@ -22,3 +23,9 @@ def test_dmr_offline_scan_file_delegates_to_unified_pipeline(monkeypatch):
 
     assert result is pdus
     assert calls == [(True, 78_125, [1250.0], {"dmr"})]
+
+
+def test_dmr_offline_exports_engine_compatibility_aliases():
+    assert dmr_offline.BURST_STRIDE == dmr_engine.BURST_STRIDE
+    assert dmr_offline.decode is dmr_engine.decode
+    assert dmr_offline._decode_dmr_loop is dmr_engine._decode_dmr_loop

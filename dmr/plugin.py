@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from dmr.config import DEFAULT_DMR_CONFIG
-import dmr.offline as dmr_offline
+import dmr.engine as dmr_engine
 from dmr.dsp import frontend as _frontend_c4fm
 from radio.protocol import ProtocolSpec, call_decoder, postprocess_identity
 
@@ -43,7 +43,7 @@ def format_pdu(pdu: dict, fo_str: str = "") -> str:
 
 
 def _dmr_decode_loop(y: np.ndarray, config: object | None = None) -> list[dict]:
-    return dmr_offline._decode_dmr_loop(y, config)
+    return dmr_engine._decode_dmr_loop(y, config)
 
 
 def decode(y: np.ndarray, config: object | None = None) -> list[dict]:

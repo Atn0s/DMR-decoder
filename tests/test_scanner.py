@@ -96,3 +96,18 @@ def test_scan_file_delegates_iq_processing_to_radio_pipeline(monkeypatch):
         ("scan_iq", True, 48_000, [1000.0], ("DMR",), scanner.RADIO_CONFIG),
         ("print", pdus),
     ]
+
+
+def test_scanner_dmr_decode_wrapper_uses_engine(monkeypatch):
+    calls = []
+
+    def fake_engine_decode(y, config=None):
+        calls.append((y, config))
+        return [{"protocol": "DMR", "type": "LC_HEADER"}]
+
+    monkeypatch.setattr(scanner, "_engine_decode_dmr_loop", fake_engine_decode)
+
+    result = scanner._decode_dmr_loop("symbols", config="config")
+
+    assert result == [{"protocol": "DMR", "type": "LC_HEADER"}]
+    assert calls == [("symbols", "config")]

@@ -22,6 +22,35 @@ def test_decode_all_combines_dmr_and_p25(monkeypatch):
     assert [p["protocol"] for p in result] == ["DMR", "P25", "dPMR"]
 
 
+def test_decode_all_uses_registered_dpmr_frontend(monkeypatch):
+    dmr_frontend = np.zeros(3)
+    dpmr_frontend = np.ones(3)
+
+    monkeypatch.setattr(protocols, "decode_dmr", lambda y: [])
+    monkeypatch.setattr(protocols, "decode_p25", lambda y: [])
+    monkeypatch.setattr(
+        protocols,
+        "decode_dpmr",
+        lambda y: [{"protocol": "dPMR", "sum": int(np.sum(y))}],
+    )
+
+    result = protocols.decode_all(
+        dmr_frontend,
+        protocol_names={"dpmr"},
+        frontends={"dPMR": dpmr_frontend},
+    )
+
+    assert result == [{"protocol": "dPMR", "sum": 3}]
+
+
+def test_normalize_protocol_names_accepts_aliases():
+    assert protocols.normalize_protocol_names(["dmr", "P25", "dpmr"]) == {
+        "DMR",
+        "P25",
+        "dPMR",
+    }
+
+
 def test_decode_dmr_adds_protocol_key(monkeypatch):
     def fake_loop(y):
         return [{"type": "CSBK", "src": 10, "dst": 20}]
@@ -32,6 +61,32 @@ def test_decode_dmr_adds_protocol_key(monkeypatch):
 
     assert result[0]["protocol"] == "DMR"
     assert result[0]["type"] == "CSBK"
+
+
+def test_protocol_dedup_key_is_protocol_aware():
+    p25 = {
+        "protocol": "P25",
+        "type": "P25_LDU1",
+        "extra": {"nac": 0x293, "fs_start": 8641},
+    }
+    dmr = {
+        "protocol": "DMR",
+        "type": "LC_HEADER",
+        "src": 1,
+        "dst": 1,
+        "_fo_hz": 1200,
+    }
+    dpmr = {
+        "protocol": "dPMR",
+        "type": "DPMR_VOICE",
+        "src": "1",
+        "dst": "2",
+        "extra": {"color_code": 2, "fs_start": 3841},
+    }
+
+    assert protocols.dedup_key(p25) == ("P25", 0x293, "P25_LDU1", 1)
+    assert protocols.dedup_key(dmr) == ("DMR", 1, 1, "LC_HEADER", 0)
+    assert protocols.dedup_key(dpmr) == ("dPMR", "1", "2", 2, 1)
 
 
 def test_print_results_accepts_p25_nid(capsys):

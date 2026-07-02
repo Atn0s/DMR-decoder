@@ -4,6 +4,7 @@ import numpy as np
 import scipy.signal as signal
 from math import gcd
 
+import protocols
 from common.io import detect_sample_rate as _detect_sample_rate, read_rawiq
 from dmr.constants import Fs_wide, Fs_dec, UP_FACTOR, DOWN_FACTOR
 from dmr.dsp import frontend
@@ -12,7 +13,7 @@ from dpmr.decoder import filter_stable_pdus
 from dpmr.dsp import frontend_dpmr
 
 
-SUPPORTED_PROTOCOLS = ("DMR", "P25", "dPMR")
+SUPPORTED_PROTOCOLS = protocols.SUPPORTED_PROTOCOLS
 
 
 def detect_sample_rate(path: str) -> int | None:
@@ -39,26 +40,11 @@ def _decode_dmr_loop(y: np.ndarray) -> list[dict]:
 
 
 def _decode_loop(y: np.ndarray) -> list[dict]:
-    import protocols
-
     return protocols.decode_all(y)
 
 
 def _normalize_protocol_names(protocol_names: list[str] | tuple[str, ...] | set[str] | None) -> set[str]:
-    if protocol_names is None:
-        return set(SUPPORTED_PROTOCOLS)
-    aliases = {
-        "dmr": "DMR",
-        "p25": "P25",
-        "dpmr": "dPMR",
-    }
-    normalized: set[str] = set()
-    for name in protocol_names:
-        key = name.lower()
-        if key not in aliases:
-            raise ValueError(f"unsupported protocol: {name}")
-        normalized.add(aliases[key])
-    return normalized
+    return protocols.normalize_protocol_names(protocol_names)
 
 
 def _decode_protocol_frontends(
@@ -66,17 +52,9 @@ def _decode_protocol_frontends(
     y_dpmr: np.ndarray | None = None,
     protocol_names: set[str] | None = None,
 ) -> list[dict]:
-    import protocols
-
-    results: list[dict] = []
     names = protocol_names or set(SUPPORTED_PROTOCOLS)
-    if "DMR" in names:
-        results.extend(protocols.decode_dmr(y))
-    if "P25" in names:
-        results.extend(protocols.decode_p25(y))
-    if "dPMR" in names:
-        results.extend(protocols.decode_dpmr(y_dpmr if y_dpmr is not None else y))
-    return results
+    frontends = {"dPMR": y_dpmr if y_dpmr is not None else y}
+    return protocols.decode_all(y, protocol_names=names, frontends=frontends)
 
 
 def _resample_factors(source_sample_rate: float, target: float = Fs_dec) -> tuple[int, int]:
@@ -157,31 +135,8 @@ def scan_file(path: str, freq_list: list[float] | None = None,
 
     all_pdus = filter_stable_pdus(all_pdus)
 
-    # Cross-candidate dedup: same burst seen at two very close frequency offsets
-    # (within 5kHz) is dropped; PDUs from genuinely different candidates are kept.
-    seen_pdus: set[tuple] = set()
-    unique: list[dict] = []
-    for pdu in all_pdus:
-        if pdu.get("protocol") == "P25":
-            extra = pdu.get("extra", {})
-            frame_bucket = round(extra.get("fs_start", 0) / 8640)
-            k = ("P25", extra.get("nac"), pdu["type"], frame_bucket)
-        elif pdu.get("protocol") == "dPMR":
-            extra = pdu.get("extra", {})
-            frame_bucket = round(extra.get("fs_start", 0) / 3840)
-            k = (
-                "dPMR",
-                pdu.get("src", ""),
-                pdu.get("dst", ""),
-                extra.get("color_code"),
-                frame_bucket,
-            )
-        else:
-            fo_bucket = round(pdu.get("_fo_hz", 0) / 5000) * 5000
-            k = ("DMR", pdu["src"], pdu["dst"], pdu["type"], fo_bucket)
-        if k not in seen_pdus:
-            seen_pdus.add(k)
-            unique.append(pdu)
+    # Cross-candidate dedup: protocol-specific keys live in protocols.py.
+    unique = protocols.deduplicate_pdus(all_pdus)
 
     _print_results(unique)
     if output_json:

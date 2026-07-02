@@ -97,6 +97,25 @@ def test_find_sync_positions_with_synthetic_sync():
     assert any(abs(c - 2000) < 200 for c in centers), f"No peak near 2000, got {centers}"
 
 
+def test_find_sync_positions_accepts_threshold_overrides():
+    from core.burst_type import SYNC_TEMPLATES, SPS
+
+    ref = SYNC_TEMPLATES["MS_VOICE"]
+    y = np.zeros(5000)
+    sync_wave = np.repeat(ref.astype(float), SPS)
+    start = 2000 - len(sync_wave) // 2
+    y[start:start + len(sync_wave)] = sync_wave * 3.0
+
+    positions = find_sync_positions(
+        y,
+        voice_threshold=1.1,
+        data_threshold=1.1,
+        peak_distance_samples=800,
+    )
+
+    assert positions == []
+
+
 def test_recover_burst_returns_132_or_none():
     from core.dsp import recover_burst
     from core.burst_type import SYNC_TEMPLATES, SPS

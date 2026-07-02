@@ -2,6 +2,7 @@ from dataclasses import replace
 
 import numpy as np
 
+from dmr.config import DMRConfig
 from dpmr.config import DPMRConfig
 from p25.config import P25Config
 import protocols
@@ -189,6 +190,15 @@ def test_postprocess_pdus_uses_protocol_specs(monkeypatch):
 def test_protocol_decoder_wrappers_pass_config(monkeypatch):
     calls = []
 
+    def fake_dmr_loop(y, config):
+        calls.append((
+            "dmr",
+            config.sync_threshold_voice,
+            config.sync_threshold_data,
+            config.voice_burst_stride_samples,
+        ))
+        return []
+
     def fake_p25(y, sps=10, sync_threshold=0.62):
         calls.append(("p25", sps, sync_threshold))
         return []
@@ -197,13 +207,22 @@ def test_protocol_decoder_wrappers_pass_config(monkeypatch):
         calls.append(("dpmr", sync_threshold))
         return []
 
+    monkeypatch.setattr(protocols, "_dmr_decode_loop", fake_dmr_loop)
     monkeypatch.setattr(protocols, "_decode_p25", fake_p25)
     monkeypatch.setattr(protocols, "_decode_dpmr", fake_dpmr)
 
+    protocols.decode_dmr(
+        np.zeros(3),
+        DMRConfig(
+            sync_threshold_voice=0.71,
+            sync_threshold_data=0.58,
+            voice_burst_stride_samples=4320,
+        ),
+    )
     protocols.decode_p25(np.zeros(3), P25Config(samples_per_symbol=8, sync_threshold=0.7))
     protocols.decode_dpmr(np.zeros(3), DPMRConfig(sync_threshold=0.9))
 
-    assert calls == [("p25", 8, 0.7), ("dpmr", 0.9)]
+    assert calls == [("dmr", 0.71, 0.58, 4320), ("p25", 8, 0.7), ("dpmr", 0.9)]
 
 
 def test_print_results_accepts_p25_nid(capsys):

@@ -1,6 +1,14 @@
 from common.config import DEFAULT_RADIO_CONFIG, DEFAULT_REALTIME_CONFIG
 from dmr.config import DEFAULT_DMR_CONFIG
-from dmr.constants import DOWN_FACTOR, Fs_dec, Fs_wide, UP_FACTOR
+from dmr.constants import (
+    DOWN_FACTOR,
+    Fs_dec,
+    Fs_wide,
+    NCC_THRESHOLD_DATA,
+    NCC_THRESHOLD_VOICE,
+    UP_FACTOR,
+)
+from dmr.offline import BURST_STRIDE
 from dpmr.config import DEFAULT_DPMR_CONFIG
 from p25.config import DEFAULT_P25_CONFIG
 
@@ -31,6 +39,13 @@ def test_protocol_config_defaults_keep_current_symbol_rates():
     assert DEFAULT_DMR_CONFIG.target_sample_rate_hz == 48_000.0
     assert DEFAULT_P25_CONFIG.target_sample_rate_hz == 48_000.0
     assert DEFAULT_DPMR_CONFIG.target_sample_rate_hz == 48_000.0
+
+
+def test_dmr_config_matches_legacy_decode_parameters():
+    assert DEFAULT_DMR_CONFIG.sync_threshold_voice == NCC_THRESHOLD_VOICE
+    assert DEFAULT_DMR_CONFIG.sync_threshold_data == NCC_THRESHOLD_DATA
+    assert DEFAULT_DMR_CONFIG.sync_peak_distance_samples == 800
+    assert DEFAULT_DMR_CONFIG.voice_burst_stride_samples == BURST_STRIDE
 
 
 def test_realtime_config_captures_current_defaults():

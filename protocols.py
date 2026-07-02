@@ -293,12 +293,14 @@ def normalize_protocol_names(
     return normalized
 
 
-def _dmr_decode_loop(y: np.ndarray) -> list[dict]:
-    return dmr_offline._decode_dmr_loop(y)
+def _dmr_decode_loop(y: np.ndarray, config: object | None = None) -> list[dict]:
+    return dmr_offline._decode_dmr_loop(y, config)
 
 
-def decode_dmr(y: np.ndarray) -> list[dict]:
-    pdus = _dmr_decode_loop(y)
+def decode_dmr(y: np.ndarray, config: object | None = None) -> list[dict]:
+    if config is None:
+        config = DEFAULT_DMR_CONFIG
+    pdus = _call_decoder(_dmr_decode_loop, y, config)
     for pdu in pdus:
         pdu.setdefault("protocol", "DMR")
     return pdus

@@ -23,6 +23,7 @@ class DMRConfig:
     nominal_deviation_hz: float = DEV_NOMINAL
     sync_threshold_voice: float = NCC_THRESHOLD_VOICE
     sync_threshold_data: float = NCC_THRESHOLD_DATA
+    sync_peak_distance_samples: int = 800
     voice_burst_stride_samples: int = 2_880
 
 

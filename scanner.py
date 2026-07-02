@@ -48,9 +48,9 @@ def _psd_blind_search(iq: np.ndarray, fs: float) -> list[float]:
     return [float(f[p]) for p in peaks]
 
 
-def _decode_dmr_loop(y: np.ndarray) -> list[dict]:
+def _decode_dmr_loop(y: np.ndarray, config: object | None = None) -> list[dict]:
     """Backward-compatible wrapper for the relocated DMR decode loop."""
-    return _dmr_decode_loop(y)
+    return _dmr_decode_loop(y, config)
 
 
 def _decode_loop(y: np.ndarray) -> list[dict]:

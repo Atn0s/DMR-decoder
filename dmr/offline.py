@@ -14,6 +14,7 @@ from dmr.constants import (
     SYNC_TEMPLATES,
     UP_FACTOR,
 )
+from dmr.config import DEFAULT_DMR_CONFIG, DMRConfig
 from dmr.decoder import LateEntryCollector, decode_burst
 from dmr.dsp import _interp, adaptive_slice_bits, find_sync_positions, frontend, recover_burst
 
@@ -58,8 +59,9 @@ def _recover_stepped_burst(
     j: int,
     ph: float,
     polarity: float,
+    burst_stride_samples: int = BURST_STRIDE,
 ):
-    start = anchor + BURST_STRIDE * j - (54 + 12) * SPS + ph
+    start = anchor + burst_stride_samples * j - (54 + 12) * SPS + ph
     pos = start + np.arange(132) * SPS
     if pos[0] < 0 or pos[-1] >= len(y) - 1:
         return None
@@ -67,8 +69,14 @@ def _recover_stepped_burst(
     return adaptive_slice_bits(seg)
 
 
-def _decode_dmr_loop(y: np.ndarray) -> list[dict]:
-    positions = find_sync_positions(y)
+def _decode_dmr_loop(y: np.ndarray, config: DMRConfig | None = None) -> list[dict]:
+    config = config or DEFAULT_DMR_CONFIG
+    positions = find_sync_positions(
+        y,
+        voice_threshold=config.sync_threshold_voice,
+        data_threshold=config.sync_threshold_data,
+        peak_distance_samples=config.sync_peak_distance_samples,
+    )
     results = []
     seen_bursts: set[tuple] = set()
 
@@ -82,7 +90,14 @@ def _decode_dmr_loop(y: np.ndarray) -> list[dict]:
             ph = _lock_voice_phase(y, center, polarity, sync_type)
             collector = LateEntryCollector()
             for j in range(6):
-                ba = _recover_stepped_burst(y, center, j, ph, polarity)
+                ba = _recover_stepped_burst(
+                    y,
+                    center,
+                    j,
+                    ph,
+                    polarity,
+                    burst_stride_samples=config.voice_burst_stride_samples,
+                )
                 if ba is None:
                     break
                 pdu = collector.feed(ba, sync_type)
@@ -100,8 +115,8 @@ def _decode_dmr_loop(y: np.ndarray) -> list[dict]:
     return results
 
 
-def decode(y: np.ndarray) -> list[dict]:
-    pdus = _decode_dmr_loop(y)
+def decode(y: np.ndarray, config: DMRConfig | None = None) -> list[dict]:
+    pdus = _decode_dmr_loop(y, config)
     for pdu in pdus:
         pdu.setdefault("protocol", "DMR")
     return pdus

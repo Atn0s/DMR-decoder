@@ -1,6 +1,8 @@
 import numpy as np
 from bitarray import bitarray
 from core.decoder import decode_burst, LateEntryCollector
+from dmr.config import DMRConfig
+import dmr.offline as dmr_offline
 
 
 def test_decode_burst_garbage_returns_none():
@@ -90,3 +92,51 @@ def test_late_entry_collector_state_machine():
     result = col.feed(first_ba, "MS_VOICE")
     # May fail EMB parse due to parity, but should not raise
     assert result is None or isinstance(result, dict)
+
+
+def test_dmr_decode_loop_passes_config_to_sync_and_voice_recovery(monkeypatch):
+    calls = []
+
+    def fake_find_sync_positions(
+        y,
+        voice_threshold,
+        data_threshold,
+        peak_distance_samples,
+    ):
+        calls.append((
+            "sync",
+            voice_threshold,
+            data_threshold,
+            peak_distance_samples,
+        ))
+        return [(1000, 1.0, "MS_VOICE")]
+
+    def fake_recover_stepped_burst(
+        y,
+        anchor,
+        j,
+        ph,
+        polarity,
+        burst_stride_samples,
+    ):
+        calls.append(("voice", anchor, j, ph, polarity, burst_stride_samples))
+        return None
+
+    monkeypatch.setattr(dmr_offline, "find_sync_positions", fake_find_sync_positions)
+    monkeypatch.setattr(dmr_offline, "_lock_voice_phase", lambda *args: 0.25)
+    monkeypatch.setattr(dmr_offline, "_recover_stepped_burst", fake_recover_stepped_burst)
+
+    config = DMRConfig(
+        sync_threshold_voice=0.72,
+        sync_threshold_data=0.59,
+        sync_peak_distance_samples=640,
+        voice_burst_stride_samples=4320,
+    )
+
+    result = dmr_offline._decode_dmr_loop(np.zeros(10), config)
+
+    assert result == []
+    assert calls == [
+        ("sync", 0.72, 0.59, 640),
+        ("voice", 1000, 0, 0.25, 1.0, 4320),
+    ]

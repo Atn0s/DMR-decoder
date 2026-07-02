@@ -61,15 +61,20 @@ def lc_front_end_compat(iq_dec: np.ndarray, cutoff: float = 9500.0,
     return frontend(iq_dec, fo=0.0, fs=Fs_dec, cutoff=cutoff, ntaps=ntaps)
 
 
-def find_sync_positions(y: np.ndarray) -> list[tuple[int, float, str]]:
+def find_sync_positions(
+    y: np.ndarray,
+    voice_threshold: float = NCC_THRESHOLD_VOICE,
+    data_threshold: float = NCC_THRESHOLD_DATA,
+    peak_distance_samples: int = 800,
+) -> list[tuple[int, float, str]]:
     """NCC scan all sync templates. Returns [(center_sample, polarity, sync_type)].
     sync_type in {'MS_VOICE','BS_VOICE','DATA_MS','DATA_BS'}"""
     results = []
     thresholds = {
-        "MS_VOICE": NCC_THRESHOLD_VOICE,
-        "BS_VOICE": NCC_THRESHOLD_VOICE,
-        "DATA_MS": NCC_THRESHOLD_DATA,
-        "DATA_BS": NCC_THRESHOLD_DATA,
+        "MS_VOICE": voice_threshold,
+        "BS_VOICE": voice_threshold,
+        "DATA_MS": data_threshold,
+        "DATA_BS": data_threshold,
     }
     for name, ref in SYNC_TEMPLATES.items():
         rwave = np.repeat(ref, SPS)
@@ -78,8 +83,8 @@ def find_sync_positions(y: np.ndarray) -> list[tuple[int, float, str]]:
         e = np.where(e <= 0, 1e-9, e)
         ncc = c / np.sqrt(e * np.sum(rwave ** 2))
         thr = thresholds[name]
-        pos_peaks, _ = signal.find_peaks(ncc, height=thr, distance=800)
-        neg_peaks, _ = signal.find_peaks(-ncc, height=thr, distance=800)
+        pos_peaks, _ = signal.find_peaks(ncc, height=thr, distance=peak_distance_samples)
+        neg_peaks, _ = signal.find_peaks(-ncc, height=thr, distance=peak_distance_samples)
         for p in pos_peaks:
             results.append((int(p), 1.0, name))
         for p in neg_peaks:

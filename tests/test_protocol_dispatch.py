@@ -3,8 +3,11 @@ from dataclasses import replace
 import numpy as np
 
 from dmr.config import DMRConfig
+import dmr.plugin as dmr_plugin
 from dpmr.config import DPMRConfig
+import dpmr.plugin as dpmr_plugin
 from p25.config import P25Config
+import p25.plugin as p25_plugin
 import protocols
 
 
@@ -56,11 +59,19 @@ def test_normalize_protocol_names_accepts_aliases():
     }
 
 
+def test_protocol_registry_uses_protocol_plugins():
+    assert protocols.PROTOCOL_REGISTRY == (
+        dmr_plugin.SPEC,
+        p25_plugin.SPEC,
+        dpmr_plugin.SPEC,
+    )
+
+
 def test_decode_dmr_adds_protocol_key(monkeypatch):
     def fake_loop(y):
         return [{"type": "CSBK", "src": 10, "dst": 20}]
 
-    monkeypatch.setattr(protocols, "_dmr_decode_loop", fake_loop)
+    monkeypatch.setattr(dmr_plugin, "_dmr_decode_loop", fake_loop)
 
     result = protocols.decode_dmr(np.zeros(1000))
 
@@ -207,9 +218,9 @@ def test_protocol_decoder_wrappers_pass_config(monkeypatch):
         calls.append(("dpmr", sync_threshold))
         return []
 
-    monkeypatch.setattr(protocols, "_dmr_decode_loop", fake_dmr_loop)
-    monkeypatch.setattr(protocols, "_decode_p25", fake_p25)
-    monkeypatch.setattr(protocols, "_decode_dpmr", fake_dpmr)
+    monkeypatch.setattr(dmr_plugin, "_dmr_decode_loop", fake_dmr_loop)
+    monkeypatch.setattr(p25_plugin, "_decode_p25", fake_p25)
+    monkeypatch.setattr(dpmr_plugin, "_decode_dpmr", fake_dpmr)
 
     protocols.decode_dmr(
         np.zeros(3),

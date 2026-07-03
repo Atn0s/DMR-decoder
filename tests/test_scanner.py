@@ -3,6 +3,7 @@ import numpy as np
 import pytest
 from scanner import detect_sample_rate, scan_file
 import scanner
+from common.config import DEFAULT_RADIO_CONFIG
 from common.io import default_iq_scale, read_rawiq
 from radio import output as radio_output
 from radio.pdu import PDU
@@ -116,9 +117,23 @@ def test_scan_file_delegates_iq_processing_to_radio_pipeline(monkeypatch):
 
     assert result is pdus
     assert calls == [
-        ("scan_iq", True, 48_000, [1000.0], True, ["dmr"], scanner.RADIO_CONFIG),
+        ("scan_iq", True, 48_000, [1000.0], True, ["dmr"], DEFAULT_RADIO_CONFIG),
         ("print", pdus),
     ]
+
+
+def test_scan_file_warns_on_high_rate_baseband_no_results(monkeypatch, capsys):
+    monkeypatch.setattr(scanner, "read_rawiq", lambda path, dtype="int16": np.ones(4, dtype=complex))
+    monkeypatch.setattr(scanner, "detect_sample_rate", lambda path: 2_500_000)
+    monkeypatch.setattr(scanner.radio_pipeline, "scan_iq", lambda *args, **kwargs: [])
+
+    result = scanner.scan_file("wideband_2.5MHz.rawiq")
+
+    assert result == []
+    out = capsys.readouterr().out
+    assert "high-rate IQ is being treated as centered baseband" in out
+    assert "No PDUs decoded" in out
+    assert "--blind-search" in out
 
 
 def test_write_json_accepts_pdu_dataclass(tmp_path):

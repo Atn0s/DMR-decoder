@@ -7,34 +7,34 @@ from radio.pdu import PDU
 def test_process_candidate_tags_frequency_offset(monkeypatch):
     calls = []
 
-    def fake_decode_iq(iq, protocol_names=None, sample_rate=0):
-        calls.append((len(iq), protocol_names, sample_rate))
+    def fake_decode_iq(iq, enabled_protocols, sample_rate=0):
+        calls.append((len(iq), enabled_protocols, sample_rate))
         return [{"protocol": "DMR", "type": "LC_HEADER"}]
 
-    monkeypatch.setattr(pipeline.protocols, "decode_iq", fake_decode_iq)
+    monkeypatch.setattr(pipeline.registry, "decode_iq_enabled", fake_decode_iq)
 
     result = pipeline.process_candidate(
         np.ones(8, dtype=complex),
         fo=1250.0,
         source_sample_rate=48_000.0,
-        protocol_names={"dmr"},
+        enabled_protocols={"DMR"},
     )
 
-    assert calls == [(8, {"dmr"}, 48_000.0)]
+    assert calls == [(8, {"DMR"}, 48_000.0)]
     assert result == [{"protocol": "DMR", "type": "LC_HEADER", "_fo_hz": 1250.0}]
 
 
 def test_process_candidate_tags_pdu_metadata(monkeypatch):
-    def fake_decode_iq(iq, protocol_names=None, sample_rate=0):
+    def fake_decode_iq(iq, enabled_protocols, sample_rate=0):
         return [PDU.from_dict({"protocol": "DMR", "type": "LC_HEADER"})]
 
-    monkeypatch.setattr(pipeline.protocols, "decode_iq", fake_decode_iq)
+    monkeypatch.setattr(pipeline.registry, "decode_iq_enabled", fake_decode_iq)
 
     result = pipeline.process_candidate(
         np.ones(8, dtype=complex),
         fo=1250.0,
         source_sample_rate=48_000.0,
-        protocol_names={"dmr"},
+        enabled_protocols={"DMR"},
     )
 
     assert isinstance(result[0], PDU)
@@ -45,21 +45,21 @@ def test_process_candidate_tags_pdu_metadata(monkeypatch):
 def test_scan_iq_runs_narrowband_decode_postprocess_and_dedup(monkeypatch):
     calls = []
 
-    def fake_decode_iq(iq, protocol_names=None, sample_rate=0):
-        calls.append(("decode", len(iq), tuple(sorted(protocol_names)), sample_rate))
+    def fake_decode_iq(iq, enabled_protocols, sample_rate=0):
+        calls.append(("decode", len(iq), tuple(sorted(enabled_protocols)), sample_rate))
         return [{"protocol": "DMR", "type": "LC_HEADER"}]
 
-    def fake_postprocess(pdus, protocol_names=None):
-        calls.append(("postprocess", len(pdus), tuple(sorted(protocol_names))))
+    def fake_postprocess(pdus, enabled_protocols):
+        calls.append(("postprocess", len(pdus), tuple(sorted(enabled_protocols))))
         return [dict(pdus[0], stable=True)]
 
     def fake_deduplicate(pdus):
         calls.append(("dedup", len(pdus)))
         return pdus
 
-    monkeypatch.setattr(pipeline.protocols, "decode_iq", fake_decode_iq)
-    monkeypatch.setattr(pipeline.protocols, "postprocess_pdus", fake_postprocess)
-    monkeypatch.setattr(pipeline.protocols, "deduplicate_pdus", fake_deduplicate)
+    monkeypatch.setattr(pipeline.registry, "decode_iq_enabled", fake_decode_iq)
+    monkeypatch.setattr(pipeline.registry, "postprocess_pdus_enabled", fake_postprocess)
+    monkeypatch.setattr(pipeline.registry, "deduplicate_pdus", fake_deduplicate)
 
     result = pipeline.scan_iq(
         np.ones(4, dtype=complex),
@@ -78,13 +78,13 @@ def test_scan_iq_runs_narrowband_decode_postprocess_and_dedup(monkeypatch):
 def test_scan_iq_explicit_frequency_list_uses_candidate_path(monkeypatch):
     calls = []
 
-    def fake_process_candidate(iq, fo, source_sample_rate, protocol_names, radio_config):
-        calls.append((fo, source_sample_rate, tuple(sorted(protocol_names))))
+    def fake_process_candidate(iq, fo, source_sample_rate, enabled_protocols, radio_config):
+        calls.append((fo, source_sample_rate, tuple(sorted(enabled_protocols))))
         return [{"protocol": "P25", "type": f"candidate-{fo:g}"}]
 
     monkeypatch.setattr(pipeline, "process_candidate", fake_process_candidate)
-    monkeypatch.setattr(pipeline.protocols, "postprocess_pdus", lambda pdus, names: pdus)
-    monkeypatch.setattr(pipeline.protocols, "deduplicate_pdus", lambda pdus: pdus)
+    monkeypatch.setattr(pipeline.registry, "postprocess_pdus_enabled", lambda pdus, names: pdus)
+    monkeypatch.setattr(pipeline.registry, "deduplicate_pdus", lambda pdus: pdus)
 
     result = pipeline.scan_iq(
         np.ones(4, dtype=complex),
@@ -111,13 +111,13 @@ def test_scan_iq_blind_search_uses_candidate_path(monkeypatch):
 
     monkeypatch.setattr(pipeline, "psd_blind_search", lambda iq, fs, radio_config: [1000.0])
 
-    def fake_process_candidate(iq, fo, source_sample_rate, protocol_names, radio_config):
-        calls.append((fo, source_sample_rate, tuple(sorted(protocol_names))))
+    def fake_process_candidate(iq, fo, source_sample_rate, enabled_protocols, radio_config):
+        calls.append((fo, source_sample_rate, tuple(sorted(enabled_protocols))))
         return [{"protocol": "DMR", "type": "candidate"}]
 
     monkeypatch.setattr(pipeline, "process_candidate", fake_process_candidate)
-    monkeypatch.setattr(pipeline.protocols, "postprocess_pdus", lambda pdus, names: pdus)
-    monkeypatch.setattr(pipeline.protocols, "deduplicate_pdus", lambda pdus: pdus)
+    monkeypatch.setattr(pipeline.registry, "postprocess_pdus_enabled", lambda pdus, names: pdus)
+    monkeypatch.setattr(pipeline.registry, "deduplicate_pdus", lambda pdus: pdus)
 
     result = pipeline.scan_iq(
         np.ones(4, dtype=complex),

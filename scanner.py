@@ -1,21 +1,17 @@
 import os
 
-import protocols
-from common.config import DEFAULT_RADIO_CONFIG
+from common.config import DEFAULT_RADIO_CONFIG, RadioConfig
 from common.io import detect_sample_rate as _detect_sample_rate, read_rawiq
+from radio import registry
 from radio import output as radio_output
 from radio import pipeline as radio_pipeline
 
 
-SUPPORTED_PROTOCOLS = protocols.SUPPORTED_PROTOCOLS
-RADIO_CONFIG = DEFAULT_RADIO_CONFIG
+SUPPORTED_PROTOCOLS = registry.SUPPORTED_PROTOCOLS
 
-# Backward-compatible module-level names. New code should use RADIO_CONFIG.
-Fs_dec = RADIO_CONFIG.target_sample_rate_hz
-Fs_wide = RADIO_CONFIG.wideband_sample_rate_hz
-UP_FACTOR = RADIO_CONFIG.wideband_resample_up
-DOWN_FACTOR = RADIO_CONFIG.wideband_resample_down
-PSD_PEAK_THRESHOLD_DB = RADIO_CONFIG.psd_peak_threshold_db
+# Backward-compatible module-level names. New code should use RadioConfig.
+Fs_dec = DEFAULT_RADIO_CONFIG.target_sample_rate_hz
+PSD_PEAK_THRESHOLD_DB = DEFAULT_RADIO_CONFIG.psd_peak_threshold_db
 
 
 def detect_sample_rate(path: str) -> int | None:
@@ -28,7 +24,8 @@ def scan_file(path: str, freq_list: list[float] | None = None,
               protocol_names: list[str] | tuple[str, ...] | set[str] | None = None,
               sample_rate: float | None = None,
               blind_search: bool = False,
-              iq_dtype: str = "int16") -> list[dict]:
+              iq_dtype: str = "int16",
+              radio_config: RadioConfig = DEFAULT_RADIO_CONFIG) -> list[dict]:
     """Scan an offline IQ file. Returns all decoded PDUs.
 
     By default the input IQ is treated as a centered baseband channel.
@@ -42,6 +39,15 @@ def scan_file(path: str, freq_list: list[float] | None = None,
             "sample rate is required; pass sample_rate/--fs or use a filename "
             "with sample rate metadata"
         )
+    if (
+        freq_list is None
+        and not blind_search
+        and fs > radio_config.target_sample_rate_hz * 4
+    ):
+        print(
+            "Note: high-rate IQ is being treated as centered baseband. "
+            "Use --blind-search for PSD candidate search, or --fo for known offsets."
+        )
 
     unique = radio_pipeline.scan_iq(
         iq,
@@ -49,10 +55,15 @@ def scan_file(path: str, freq_list: list[float] | None = None,
         freq_list=freq_list,
         blind_search=blind_search,
         protocol_names=protocol_names,
-        radio_config=RADIO_CONFIG,
+        radio_config=radio_config,
     )
 
     radio_output.print_results(unique)
+    if not unique:
+        print(
+            "No PDUs decoded. If this is wideband or multi-channel IQ, rerun with "
+            "--blind-search or specify one or more --fo values."
+        )
     if output_json:
         radio_output.write_json(unique, output_json)
     return unique

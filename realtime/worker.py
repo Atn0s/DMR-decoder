@@ -3,8 +3,7 @@ import scipy.signal as signal
 from math import gcd
 
 from core.burst_type import Fs_dec
-from core.dsp import frontend
-import protocols
+from radio import registry
 from radio.pdu import set_pdu_meta
 
 
@@ -34,8 +33,7 @@ def decode_window(window_iq: np.ndarray, fo_hz: float, window_id: int,
         iq_dec = signal.resample_poly(shifted, up, down)
         if len(iq_dec) < 512:
             return []
-        y = frontend(iq_dec, fo=0.0, fs=Fs_dec)
-        pdus = protocols.decode_all(y)
+        pdus = registry.decode_iq(iq_dec, sample_rate=Fs_dec)
         for pdu in pdus:
             set_pdu_meta(pdu, "fo_hz", fo_hz)
             set_pdu_meta(pdu, "window_id", window_id)

@@ -82,31 +82,6 @@ def _quality_score(cch0: CCHRecord | None, cch1: CCHRecord | None, color_code: i
     return score
 
 
-def _decision_penalty(timing: dict) -> float:
-    return 0.5 * float(timing.get("decision_error_p90", 0.0)) + 0.02 * float(timing.get("ambiguous_symbols", 0))
-
-
-def _cch_score(record: CCHRecord | None, resid: float, timing: dict | None = None) -> float:
-    if record is None:
-        return -1e9
-    score = 0.0
-    score += 10.0 if record.crc_ok else 0.0
-    score += 3.0 if record.hamming_ok else 0.0
-    score += sum(1 for ok in record.hamming_blocks_ok if ok) / 6.0
-    score -= 0.2 * resid
-    if timing is not None:
-        score -= _decision_penalty(timing)
-    return score
-
-
-def _cc_score(color_code: int, resid: float, timing: dict | None = None) -> float:
-    score = 4.0 if color_code >= 0 else 0.0
-    score -= 0.2 * resid
-    if timing is not None:
-        score -= _decision_penalty(timing)
-    return score
-
-
 def _quality_summary(cch0: CCHRecord | None, cch1: CCHRecord | None) -> dict:
     records = [rec for rec in (cch0, cch1) if rec is not None]
     frames = {rec.frame_number for rec in records if cch_record_usable(rec)}
@@ -127,23 +102,6 @@ def _quality_summary(cch0: CCHRecord | None, cch1: CCHRecord | None) -> dict:
         "valid_frame_pair": valid_pair,
         "confidence": confidence,
     }
-
-
-def _timing_coherent(*timings: dict) -> bool:
-    sps_values = [float(timing["sps"]) for timing in timings]
-    phase_values = [float(timing["phase"]) for timing in timings]
-    windows = {int(timing["sample_window"]) for timing in timings}
-    return (
-        max(sps_values) - min(sps_values) <= 0.3
-        and max(phase_values) - min(phase_values) <= 3.0
-        and len(windows) == 1
-    )
-
-
-def _front_end_confidence(quality: dict, coherent: bool) -> str:
-    if not coherent:
-        return "diagnostic"
-    return quality["confidence"]
 
 
 def _candidate_score(

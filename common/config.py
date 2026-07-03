@@ -7,10 +7,6 @@ from dataclasses import dataclass
 class RadioConfig:
     target_sample_rate_hz: float = 48_000.0
     sample_rate_tolerance_hz: float = 1.0
-    wideband_sample_rate_hz: float = 2_500_000.0
-    wideband_resample_up: int = 12
-    wideband_resample_down: int = 625
-    narrowband_max_sample_rate_hz: float = 200_000.0
     psd_peak_threshold_db: float = 15.0
     psd_nperseg: int = 4096
     psd_peak_min_distance_bins: int = 20

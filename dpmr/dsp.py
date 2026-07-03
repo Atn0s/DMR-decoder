@@ -105,7 +105,7 @@ def _sync_error(
     best = (len(ref), float("inf"))
     ref_levels = _dibits_to_levels(ref)
     if phase_search is None:
-        phase_search = np.linspace(-12, 12, 25)
+        phase_search = np.linspace(-12, 12, 13)
     for phase in phase_search:
         pos = fs_start + phase + np.arange(len(ref)) * SPS
         if pos[0] < 0 or pos[-1] >= len(y) - 1:
@@ -224,15 +224,6 @@ def find_fs1_sync(
     ]
 
 
-def recover_voice_fs2_symbols(
-    y: np.ndarray,
-    candidate: DPMRSyncCandidate,
-    phase_search: np.ndarray | None = None,
-) -> np.ndarray | None:
-    recovered = recover_voice_fs2_symbol_candidates(y, candidate, phase_search=phase_search, limit=1)
-    return recovered[0].symbols if recovered else None
-
-
 def _sample_symbols(y: np.ndarray, positions: np.ndarray, half_window: int) -> np.ndarray:
     if half_window <= 0:
         return interp(y, positions)
@@ -261,14 +252,14 @@ def recover_frame_symbol_candidates(
     total_symbols: int = DPMR_FRAME_SYMBOLS,
     phase_search: np.ndarray | None = None,
     sps_search: np.ndarray | None = None,
-    sample_windows: tuple[int, ...] = (0, 3),
+    sample_windows: tuple[int, ...] = (0,),
     limit: int = 8,
     decision_ambiguous_threshold: float = 0.35,
 ) -> list[DPMRSymbolCandidate]:
     if phase_search is None:
-        phase_search = np.linspace(-10, 10, 41)
+        phase_search = np.linspace(-12, 12, 25)
     if sps_search is None:
-        sps_search = np.linspace(19.0, 21.0, 21)
+        sps_search = np.array([float(SPS)])
     ref_dibits = _sync_ref_for_candidate(candidate)
     ref = _dibits_to_levels(ref_dibits)
     recovered: list[tuple[float, np.ndarray, float, float, int]] = []
@@ -294,7 +285,7 @@ def recover_frame_symbol_candidates(
                 ).astype(int)
                 decision_error = np.abs(calibrated - DIBIT_LEVELS[nearest])
                 resid = float(np.mean((calibrated[:len(ref)] - ref) ** 2))
-                resid += 0.03 * float(np.mean((calibrated - nearest) ** 2))
+                resid += 0.03 * float(np.mean((calibrated - DIBIT_LEVELS[nearest]) ** 2))
                 if candidate.polarity_inverted:
                     nearest = nearest ^ 2
                 recovered.append((
@@ -334,7 +325,7 @@ def recover_voice_fs2_symbol_candidates(
     candidate: DPMRSyncCandidate,
     phase_search: np.ndarray | None = None,
     sps_search: np.ndarray | None = None,
-    sample_windows: tuple[int, ...] = (0, 3),
+    sample_windows: tuple[int, ...] = (0,),
     limit: int = 8,
     decision_ambiguous_threshold: float = 0.35,
 ) -> list[DPMRSymbolCandidate]:

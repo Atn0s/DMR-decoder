@@ -87,10 +87,10 @@ def decode(y: np.ndarray, config: object | None = None) -> list[dict]:
 SPEC = ProtocolSpec(
     "dPMR",
     ("dpmr",),
-    "decode_dpmr",
     DEFAULT_DPMR_CONFIG,
     "dpmr_4fsk",
     frontend,
+    decode,
     postprocess,
     dedup_key,
     format_pdu,

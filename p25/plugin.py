@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from dmr.dsp import frontend as _frontend_c4fm
+from common.dsp import fsk_frontend
 from p25.config import DEFAULT_P25_CONFIG
 from p25.decoder import decode as _decode_p25
 from radio.pdu import pdus_to_standard_dicts
@@ -10,7 +10,7 @@ from radio.protocol import ProtocolSpec, postprocess_identity
 
 
 def frontend(iq_dec: np.ndarray, sample_rate: float, config: object) -> np.ndarray:
-    return _frontend_c4fm(
+    return fsk_frontend(
         iq_dec,
         fo=0.0,
         fs=sample_rate,
@@ -131,10 +131,10 @@ def decode(y: np.ndarray, config: object | None = None) -> list[dict]:
 SPEC = ProtocolSpec(
     "P25",
     ("p25",),
-    "decode_p25",
     DEFAULT_P25_CONFIG,
     "c4fm_4fsk",
     frontend,
+    decode,
     postprocess_identity,
     dedup_key,
     format_pdu,

@@ -457,7 +457,7 @@ rawiq file
        find_sync_positions()
        Data Sync -> decode_burst()
        Voice Sync -> LateEntryCollector
-  -> protocols.deduplicate_pdus()
+  -> radio.registry.deduplicate_pdus()
   -> scanner 输出文本或 JSON
 ```
 

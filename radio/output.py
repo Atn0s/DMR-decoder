@@ -4,7 +4,7 @@ import json
 import os
 from collections.abc import Iterable, Mapping
 
-import protocols
+from radio import registry
 from radio.pdu import PDU, pdu_to_dict
 
 
@@ -12,7 +12,7 @@ PDUItem = Mapping[str, object] | PDU
 
 
 def format_lines(pdus: Iterable[PDUItem]) -> list[str]:
-    return [protocols.format_pdu(pdu) for pdu in pdus]
+    return [registry.format_pdu(pdu) for pdu in pdus]
 
 
 def print_results(pdus: Iterable[PDUItem]) -> None:

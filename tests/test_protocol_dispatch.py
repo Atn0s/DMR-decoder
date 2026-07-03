@@ -8,53 +8,14 @@ from dpmr.config import DPMRConfig
 import dpmr.plugin as dpmr_plugin
 from p25.config import P25Config
 import p25.plugin as p25_plugin
-import protocols
+import dmr.engine as dmr_engine
+from radio import registry
 from radio import output as radio_output
 from radio.pdu import PDU
 
 
-def test_decode_all_combines_dmr_and_p25(monkeypatch):
-    def fake_dmr(y):
-        return [{"protocol": "DMR", "type": "LC_HEADER", "src": 1, "dst": 2}]
-
-    def fake_p25(y):
-        return [{"protocol": "P25", "type": "P25_NID", "src": 0, "dst": 0}]
-
-    def fake_dpmr(y):
-        return [{"protocol": "dPMR", "type": "DPMR_VOICE", "src": "", "dst": ""}]
-
-    monkeypatch.setattr(protocols, "decode_dmr", fake_dmr)
-    monkeypatch.setattr(protocols, "decode_p25", fake_p25)
-    monkeypatch.setattr(protocols, "decode_dpmr", fake_dpmr)
-
-    result = protocols.decode_all(np.zeros(1000))
-
-    assert [p["protocol"] for p in result] == ["DMR", "P25", "dPMR"]
-
-
-def test_decode_all_uses_registered_dpmr_frontend(monkeypatch):
-    dmr_frontend = np.zeros(3)
-    dpmr_frontend = np.ones(3)
-
-    monkeypatch.setattr(protocols, "decode_dmr", lambda y: [])
-    monkeypatch.setattr(protocols, "decode_p25", lambda y: [])
-    monkeypatch.setattr(
-        protocols,
-        "decode_dpmr",
-        lambda y: [{"protocol": "dPMR", "sum": int(np.sum(y))}],
-    )
-
-    result = protocols.decode_all(
-        dmr_frontend,
-        protocol_names={"dpmr"},
-        frontends={"dPMR": dpmr_frontend},
-    )
-
-    assert result == [{"protocol": "dPMR", "sum": 3}]
-
-
 def test_normalize_protocol_names_accepts_aliases():
-    assert protocols.normalize_protocol_names(["dmr", "P25", "dpmr"]) == {
+    assert registry.normalize_protocol_names(["dmr", "P25", "dpmr"]) == {
         "DMR",
         "P25",
         "dPMR",
@@ -62,7 +23,7 @@ def test_normalize_protocol_names_accepts_aliases():
 
 
 def test_protocol_registry_uses_protocol_plugins():
-    assert protocols.PROTOCOL_REGISTRY == (
+    assert registry.PROTOCOL_REGISTRY == (
         dmr_plugin.SPEC,
         p25_plugin.SPEC,
         dpmr_plugin.SPEC,
@@ -70,12 +31,12 @@ def test_protocol_registry_uses_protocol_plugins():
 
 
 def test_decode_dmr_adds_protocol_key(monkeypatch):
-    def fake_loop(y):
+    def fake_loop(y, config):
         return [{"type": "CSBK", "src": 10, "dst": 20}]
 
-    monkeypatch.setattr(dmr_plugin, "_dmr_decode_loop", fake_loop)
+    monkeypatch.setattr(dmr_engine, "_decode_dmr_loop", fake_loop)
 
-    result = protocols.decode_dmr(np.zeros(1000))
+    result = dmr_plugin.decode(np.zeros(1000))
 
     assert result[0]["protocol"] == "DMR"
     assert result[0]["type"] == "CSBK"
@@ -95,8 +56,8 @@ def test_protocol_plugin_decodes_normalize_schema_defaults(monkeypatch):
         lambda *args, **kwargs: [{"protocol": "dPMR", "type": "DPMR_VOICE"}],
     )
 
-    p25_result = protocols.decode_p25(np.zeros(3))[0]
-    dpmr_result = protocols.decode_dpmr(np.zeros(3))[0]
+    p25_result = p25_plugin.decode(np.zeros(3))[0]
+    dpmr_result = dpmr_plugin.decode(np.zeros(3))[0]
 
     assert p25_result["src"] == 0
     assert p25_result["dst"] == 0
@@ -127,9 +88,9 @@ def test_protocol_dedup_key_is_protocol_aware():
         "extra": {"color_code": 2, "fs_start": 3841},
     }
 
-    assert protocols.dedup_key(p25) == ("P25", 0x293, "P25_LDU1", 1)
-    assert protocols.dedup_key(dmr) == ("DMR", 1, 1, "LC_HEADER", 0)
-    assert protocols.dedup_key(dpmr) == ("dPMR", "1", "2", 2, 1)
+    assert registry.dedup_key(p25) == ("P25", 0x293, "P25_LDU1", 1)
+    assert registry.dedup_key(dmr) == ("DMR", 1, 1, "LC_HEADER", 0)
+    assert registry.dedup_key(dpmr) == ("dPMR", "1", "2", 2, 1)
 
 
 def test_protocol_boundaries_accept_pdu_dataclass():
@@ -145,12 +106,12 @@ def test_protocol_boundaries_accept_pdu_dataclass():
         "_fo_hz": 1250.0,
     })
 
-    assert protocols.dedup_key(pdu) == ("DMR", 1, 2, "LC_HEADER", 0)
-    assert protocols.format_pdu(pdu).endswith("FID=FID (fo=+1.2kHz)")
+    assert registry.dedup_key(pdu) == ("DMR", 1, 2, "LC_HEADER", 0)
+    assert registry.format_pdu(pdu).endswith("FID=FID (fo=+1.2kHz)")
 
 
 def test_protocol_spec_exposes_formatter_and_dedup_key():
-    spec = protocols.spec_for_protocol("p25")
+    spec = registry.spec_for_protocol("p25")
     pdu = {
         "protocol": "P25",
         "type": "P25_NID",
@@ -177,7 +138,7 @@ def test_decode_iq_uses_protocol_frontends(monkeypatch):
         return np.full(3, 2)
 
     patched = []
-    for spec in protocols.PROTOCOL_REGISTRY:
+    for spec in registry.PROTOCOL_REGISTRY:
         if spec.name in {"DMR", "P25"}:
             patched.append(
                 replace(
@@ -185,6 +146,7 @@ def test_decode_iq_uses_protocol_frontends(monkeypatch):
                     config=f"{spec.name}-config",
                     frontend_key="shared",
                     frontend=shared_frontend,
+                    decode=lambda y, config: [{"protocol": config.split("-")[0], "sum": int(np.sum(y)), "config": config}],
                 )
             )
         else:
@@ -194,27 +156,13 @@ def test_decode_iq_uses_protocol_frontends(monkeypatch):
                     config=f"{spec.name}-config",
                     frontend_key="dpmr",
                     frontend=dpmr_frontend,
+                    decode=lambda y, config: [{"protocol": "dPMR", "sum": int(np.sum(y)), "config": config}],
                 )
             )
 
-    monkeypatch.setattr(protocols, "PROTOCOL_REGISTRY", tuple(patched))
-    monkeypatch.setattr(
-        protocols,
-        "decode_dmr",
-        lambda y, config: [{"protocol": "DMR", "sum": int(np.sum(y)), "config": config}],
-    )
-    monkeypatch.setattr(
-        protocols,
-        "decode_p25",
-        lambda y, config: [{"protocol": "P25", "sum": int(np.sum(y)), "config": config}],
-    )
-    monkeypatch.setattr(
-        protocols,
-        "decode_dpmr",
-        lambda y, config: [{"protocol": "dPMR", "sum": int(np.sum(y)), "config": config}],
-    )
+    monkeypatch.setattr(registry, "PROTOCOL_REGISTRY", tuple(patched))
 
-    result = protocols.decode_iq(np.zeros(5), sample_rate=123.0)
+    result = registry.decode_iq(np.zeros(5), sample_rate=123.0)
 
     assert calls == [("shared", 123.0, "DMR-config"), ("dpmr", 123.0, "dPMR-config")]
     assert result == [
@@ -230,11 +178,11 @@ def test_postprocess_pdus_uses_protocol_specs(monkeypatch):
 
     patched = [
         replace(spec, postprocess=mark_dpmr) if spec.name == "dPMR" else spec
-        for spec in protocols.PROTOCOL_REGISTRY
+        for spec in registry.PROTOCOL_REGISTRY
     ]
-    monkeypatch.setattr(protocols, "PROTOCOL_REGISTRY", tuple(patched))
+    monkeypatch.setattr(registry, "PROTOCOL_REGISTRY", tuple(patched))
 
-    result = protocols.postprocess_pdus(
+    result = registry.postprocess_pdus(
         [{"protocol": "dPMR", "type": "DPMR_VOICE"}],
         protocol_names={"dpmr"},
     )
@@ -297,11 +245,11 @@ def test_protocol_decoder_wrappers_pass_config(monkeypatch):
         ))
         return []
 
-    monkeypatch.setattr(dmr_plugin, "_dmr_decode_loop", fake_dmr_loop)
+    monkeypatch.setattr(dmr_engine, "_decode_dmr_loop", fake_dmr_loop)
     monkeypatch.setattr(p25_plugin, "_decode_p25", fake_p25)
     monkeypatch.setattr(dpmr_plugin, "_decode_dpmr", fake_dpmr)
 
-    protocols.decode_dmr(
+    dmr_plugin.decode(
         np.zeros(3),
         DMRConfig(
             sync_threshold_voice=0.71,
@@ -309,7 +257,7 @@ def test_protocol_decoder_wrappers_pass_config(monkeypatch):
             voice_burst_stride_samples=4320,
         ),
     )
-    protocols.decode_p25(
+    p25_plugin.decode(
         np.zeros(3),
         P25Config(
             samples_per_symbol=8,
@@ -319,7 +267,7 @@ def test_protocol_decoder_wrappers_pass_config(monkeypatch):
             stable_nac_min_ratio=0.25,
         ),
     )
-    protocols.decode_dpmr(
+    dpmr_plugin.decode(
         np.zeros(3),
         DPMRConfig(
             sync_threshold=0.9,
@@ -348,7 +296,7 @@ def test_protocol_frontend_wrappers_pass_config(monkeypatch):
         return np.ones(3)
 
     monkeypatch.setattr(dmr_plugin, "_frontend_c4fm", fake_c4fm_frontend)
-    monkeypatch.setattr(p25_plugin, "_frontend_c4fm", fake_c4fm_frontend)
+    monkeypatch.setattr(p25_plugin, "fsk_frontend", fake_c4fm_frontend)
     monkeypatch.setattr(dpmr_plugin, "frontend_dpmr", fake_dpmr_frontend)
 
     dmr_plugin.frontend(

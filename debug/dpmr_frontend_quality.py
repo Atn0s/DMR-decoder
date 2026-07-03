@@ -25,7 +25,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.signal as signal
 
-from core.burst_type import DEV_NOMINAL
 from core.dsp import _interp, read_rawiq
 from dpmr.cch import (
     air_interface_id_to_str,
@@ -37,6 +36,7 @@ from dpmr.cch import (
 from dpmr.constants import (
     CCH_SYMBOLS,
     CC_SYMBOLS,
+    DPMR_DEV_NOMINAL,
     FS_DEC,
     FS2_SYMBOL_COUNT,
     LEVEL_TO_DIBIT,
@@ -105,7 +105,7 @@ def fm_frontend(
     integrate_symbols: bool = False,
     sps: int = SPS,
 ) -> tuple[np.ndarray, float]:
-    """DMR-style FM front end with optional integrate-and-dump matched filter."""
+    """dPMR FM front end with optional integrate-and-dump matched filter."""
     f, ps = signal.welch(iq, fs=fs, nperseg=4096, return_onesided=False)
     f = np.fft.fftshift(f)
     ps = np.fft.fftshift(ps)
@@ -120,7 +120,7 @@ def fm_frontend(
     amp = np.abs(iq_filtered[:-1])
     active = amp > (np.median(amp) + 0.3 * (np.mean(amp) - np.median(amp)))
     center = np.median(demod[active]) if np.any(active) else np.median(demod)
-    y = (demod - center) * (3.0 / (2.0 * np.pi * DEV_NOMINAL / fs))
+    y = (demod - center) * (3.0 / (2.0 * np.pi * DPMR_DEV_NOMINAL / fs))
 
     if integrate_symbols:
         y = np.convolve(y, np.ones(sps) / sps, mode="same")

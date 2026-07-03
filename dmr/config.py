@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from dmr.constants import (
     DEV_NOMINAL,
     Fs_dec,
-    Fs_wide,
     NCC_THRESHOLD_DATA,
     NCC_THRESHOLD_VOICE,
     SPS,
@@ -15,7 +14,6 @@ from dmr.constants import (
 @dataclass(frozen=True)
 class DMRConfig:
     target_sample_rate_hz: float = Fs_dec
-    wideband_sample_rate_hz: float = Fs_wide
     symbol_rate_hz: float = 4_800.0
     samples_per_symbol: int = SPS
     frontend_cutoff_hz: float = 9_500.0

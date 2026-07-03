@@ -1,36 +1,31 @@
 from common.config import DEFAULT_RADIO_CONFIG, DEFAULT_REALTIME_CONFIG
 from dmr.config import DEFAULT_DMR_CONFIG
 from dmr.constants import (
-    DOWN_FACTOR,
     Fs_dec,
-    Fs_wide,
     NCC_THRESHOLD_DATA,
     NCC_THRESHOLD_VOICE,
-    UP_FACTOR,
 )
 from dmr.engine import BURST_STRIDE
 from dpmr.config import DEFAULT_DPMR_CONFIG
 from p25.config import DEFAULT_P25_CONFIG
+from radio.pipeline import resample_factors
+from radio import registry
 
-import protocols
 import scanner
 
 
-def test_radio_config_matches_legacy_scanner_constants():
+def test_radio_config_uses_dynamic_resampling_contract():
     assert DEFAULT_RADIO_CONFIG.target_sample_rate_hz == Fs_dec
     assert DEFAULT_RADIO_CONFIG.sample_rate_tolerance_hz == 1.0
-    assert DEFAULT_RADIO_CONFIG.wideband_sample_rate_hz == Fs_wide
-    assert DEFAULT_RADIO_CONFIG.wideband_resample_up == UP_FACTOR
-    assert DEFAULT_RADIO_CONFIG.wideband_resample_down == DOWN_FACTOR
     assert DEFAULT_RADIO_CONFIG.psd_peak_threshold_db == scanner.PSD_PEAK_THRESHOLD_DB
     assert DEFAULT_RADIO_CONFIG.target_sample_rate_hz == scanner.Fs_dec
-    assert DEFAULT_RADIO_CONFIG.wideband_sample_rate_hz == scanner.Fs_wide
+    assert resample_factors(2_500_000.0, DEFAULT_RADIO_CONFIG.target_sample_rate_hz) == (12, 625)
 
 
 def test_protocol_specs_expose_default_configs():
-    assert protocols.spec_for_protocol("dmr").config is DEFAULT_DMR_CONFIG
-    assert protocols.spec_for_protocol("p25").config is DEFAULT_P25_CONFIG
-    assert protocols.spec_for_protocol("dpmr").config is DEFAULT_DPMR_CONFIG
+    assert registry.spec_for_protocol("dmr").config is DEFAULT_DMR_CONFIG
+    assert registry.spec_for_protocol("p25").config is DEFAULT_P25_CONFIG
+    assert registry.spec_for_protocol("dpmr").config is DEFAULT_DPMR_CONFIG
 
 
 def test_protocol_config_defaults_keep_current_symbol_rates():
@@ -63,21 +58,25 @@ def test_protocol_configs_capture_frontend_and_dedup_defaults():
     assert DEFAULT_P25_CONFIG.dedup_frame_bucket_samples == 8_640
     assert DEFAULT_DPMR_CONFIG.frontend_min_samples == 512
     assert DEFAULT_DPMR_CONFIG.frontend_psd_nperseg == 4096
+    assert DEFAULT_DPMR_CONFIG.nominal_deviation_hz == 1_050.0
     assert DEFAULT_DPMR_CONFIG.sync_max_symbol_errors == 0
     assert DEFAULT_DPMR_CONFIG.sync_min_distance_samples == 1_200
     assert DEFAULT_DPMR_CONFIG.sync_dedup_window_symbols == 3
     assert DEFAULT_DPMR_CONFIG.sync_error_phase_min == -12.0
     assert DEFAULT_DPMR_CONFIG.sync_error_phase_max == 12.0
-    assert DEFAULT_DPMR_CONFIG.sync_error_phase_steps == 25
-    assert DEFAULT_DPMR_CONFIG.phase_search_min == -10.0
-    assert DEFAULT_DPMR_CONFIG.phase_search_max == 10.0
-    assert DEFAULT_DPMR_CONFIG.phase_search_steps == 41
-    assert DEFAULT_DPMR_CONFIG.sample_windows == (0, 3)
+    assert DEFAULT_DPMR_CONFIG.sync_error_phase_steps == 13
+    assert DEFAULT_DPMR_CONFIG.sps_search_min == 20.0
+    assert DEFAULT_DPMR_CONFIG.sps_search_max == 20.0
+    assert DEFAULT_DPMR_CONFIG.sps_search_steps == 1
+    assert DEFAULT_DPMR_CONFIG.phase_search_min == -12.0
+    assert DEFAULT_DPMR_CONFIG.phase_search_max == 12.0
+    assert DEFAULT_DPMR_CONFIG.phase_search_steps == 25
+    assert DEFAULT_DPMR_CONFIG.sample_windows == (0,)
     assert DEFAULT_DPMR_CONFIG.decision_ambiguous_threshold == 0.35
     assert DEFAULT_DPMR_CONFIG.header_sync_candidate_limit == 50
-    assert DEFAULT_DPMR_CONFIG.header_symbol_candidate_limit == 160
+    assert DEFAULT_DPMR_CONFIG.header_symbol_candidate_limit == 16
     assert DEFAULT_DPMR_CONFIG.voice_sync_candidate_limit == 100
-    assert DEFAULT_DPMR_CONFIG.voice_symbol_candidate_limit == 40
+    assert DEFAULT_DPMR_CONFIG.voice_symbol_candidate_limit == 8
     assert DEFAULT_DPMR_CONFIG.dedup_frame_bucket_samples == 3_840
     assert DEFAULT_DPMR_CONFIG.stable_color_min_repeats == 2
 

@@ -22,7 +22,7 @@
 | 当前工程解码采样率 | 48 kHz |
 | 当前工程每符号采样点 | 20 samples/symbol |
 | 当前工程前端低通 | 约 3.5 kHz |
-| 当前工程 nominal deviation | 约 1944 Hz，用于 4FSK 鉴频幅度归一化 |
+| 当前工程 nominal deviation | 约 1050 Hz，用于把 dPMR 外层 `±3` 频偏归一化到符号电平 |
 | 基本帧时长 | 160 ms |
 | 基本帧长度 | 384 symbols = 768 raw bits |
 | 色码范围 | 0-63，当前工程从 24 bit Channel Code 中恢复 |

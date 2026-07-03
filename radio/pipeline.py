@@ -6,8 +6,8 @@ import numpy as np
 import scipy.signal as signal
 
 from common.config import DEFAULT_RADIO_CONFIG, RadioConfig
-import protocols
 from radio.pdu import set_pdu_meta
+from radio import registry
 
 
 def psd_blind_search(
@@ -45,7 +45,7 @@ def process_candidate(
     iq: np.ndarray,
     fo: float,
     source_sample_rate: float,
-    protocol_names: list[str] | tuple[str, ...] | set[str] | None = None,
+    enabled_protocols: set[str],
     radio_config: RadioConfig = DEFAULT_RADIO_CONFIG,
 ) -> list[dict]:
     """DDC + resample + protocol decode for one wideband frequency candidate."""
@@ -60,9 +60,9 @@ def process_candidate(
         up, down = resample_factors(source_sample_rate, target_sample_rate)
         iq_dec = signal.resample_poly(iq_shifted, up, down)
 
-    results = protocols.decode_iq(
+    results = registry.decode_iq_enabled(
         iq_dec,
-        protocol_names=protocol_names,
+        enabled_protocols=enabled_protocols,
         sample_rate=target_sample_rate,
     )
     for pdu in results:
@@ -73,7 +73,7 @@ def process_candidate(
 def process_baseband(
     iq: np.ndarray,
     source_sample_rate: float,
-    protocol_names: list[str] | tuple[str, ...] | set[str] | None = None,
+    enabled_protocols: set[str],
     radio_config: RadioConfig = DEFAULT_RADIO_CONFIG,
 ) -> list[dict]:
     """Resample a centered baseband IQ stream if needed, then run protocol decode."""
@@ -84,21 +84,11 @@ def process_baseband(
     else:
         up, down = resample_factors(source_sample_rate, target_sample_rate)
         iq_dec = signal.resample_poly(iq, up, down)
-    return protocols.decode_iq(
+    return registry.decode_iq_enabled(
         iq_dec,
-        protocol_names=protocol_names,
+        enabled_protocols=enabled_protocols,
         sample_rate=target_sample_rate,
     )
-
-
-def process_narrowband(
-    iq: np.ndarray,
-    source_sample_rate: float,
-    protocol_names: list[str] | tuple[str, ...] | set[str] | None = None,
-    radio_config: RadioConfig = DEFAULT_RADIO_CONFIG,
-) -> list[dict]:
-    """Compatibility wrapper for the old centered narrowband path."""
-    return process_baseband(iq, source_sample_rate, protocol_names, radio_config)
 
 
 def scan_iq(
@@ -113,7 +103,7 @@ def scan_iq(
     if sample_rate is None:
         raise ValueError("sample_rate is required; pass --fs or use a filename with sample rate metadata")
 
-    enabled_protocols = protocols.normalize_protocol_names(protocol_names)
+    enabled_protocols = registry.normalize_protocol_names(protocol_names)
     fs_in = float(sample_rate)
 
     if freq_list is not None:
@@ -148,5 +138,5 @@ def scan_iq(
             radio_config,
         )
 
-    all_pdus = protocols.postprocess_pdus(all_pdus, enabled_protocols)
-    return protocols.deduplicate_pdus(all_pdus)
+    all_pdus = registry.postprocess_pdus_enabled(all_pdus, enabled_protocols)
+    return registry.deduplicate_pdus(all_pdus)

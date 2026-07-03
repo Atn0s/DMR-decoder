@@ -25,22 +25,30 @@ def detect_sample_rate(path: str) -> int | None:
 
 def scan_file(path: str, freq_list: list[float] | None = None,
               output_json: str | None = None,
-              protocol_names: list[str] | tuple[str, ...] | set[str] | None = None) -> list[dict]:
+              protocol_names: list[str] | tuple[str, ...] | set[str] | None = None,
+              sample_rate: float | None = None,
+              blind_search: bool = False,
+              iq_dtype: str = "int16") -> list[dict]:
     """Scan an offline IQ file. Returns all decoded PDUs.
 
-    For wideband files (fs > 200kHz): Welch PSD blind search for candidates.
-    For narrowband files (fs <= 200kHz): direct processing.
+    By default the input IQ is treated as a centered baseband channel.
+    Set blind_search=True for Welch PSD candidate search over a wider IQ span.
     freq_list overrides blind search with explicit frequency offsets.
     """
-    enabled_protocols = protocols.normalize_protocol_names(protocol_names)
-    iq = read_rawiq(path)
-    fs = detect_sample_rate(path)
+    iq = read_rawiq(path, dtype=iq_dtype)
+    fs = sample_rate if sample_rate is not None else detect_sample_rate(path)
+    if fs is None:
+        raise ValueError(
+            "sample rate is required; pass sample_rate/--fs or use a filename "
+            "with sample rate metadata"
+        )
 
     unique = radio_pipeline.scan_iq(
         iq,
         fs,
         freq_list=freq_list,
-        protocol_names=enabled_protocols,
+        blind_search=blind_search,
+        protocol_names=protocol_names,
         radio_config=RADIO_CONFIG,
     )
 
@@ -59,6 +67,13 @@ def main(argv: list[str] | None = None) -> int:
                         help="limit decoding to one protocol; repeat to enable several")
     parser.add_argument("--fo", type=float, action="append", default=None,
                         help="frequency offset in Hz; repeat for multiple candidates")
+    parser.add_argument("--fs", "--sample-rate", dest="sample_rate", type=float, default=None,
+                        help="input IQ sample rate in Hz; overrides filename inference")
+    parser.add_argument("--blind-search", action="store_true",
+                        help="run Welch PSD candidate search instead of assuming centered baseband")
+    parser.add_argument("--iq-dtype", default="int16",
+                        choices=["int8", "int16", "int32", "float32", "float64"],
+                        help="interleaved IQ scalar dtype")
     parser.add_argument("--json", dest="output_json", default=None,
                         help="write decoded PDUs to JSON; only valid for one target")
     args = parser.parse_args(argv)
@@ -76,6 +91,9 @@ def main(argv: list[str] | None = None) -> int:
             freq_list=args.fo,
             output_json=args.output_json,
             protocol_names=args.protocol,
+            sample_rate=args.sample_rate,
+            blind_search=args.blind_search,
+            iq_dtype=args.iq_dtype,
         )
     return 0
 

@@ -88,10 +88,43 @@ def test_scan_iq_explicit_frequency_list_uses_candidate_path(monkeypatch):
 
     result = pipeline.scan_iq(
         np.ones(4, dtype=complex),
-        sample_rate=None,
+        sample_rate=2_500_000.0,
         freq_list=[12_500.0],
         protocol_names={"p25"},
     )
 
     assert calls == [(12_500.0, 2_500_000.0, ("P25",))]
     assert result == [{"protocol": "P25", "type": "candidate-12500"}]
+
+
+def test_scan_iq_requires_sample_rate():
+    try:
+        pipeline.scan_iq(np.ones(4, dtype=complex), sample_rate=None)
+    except ValueError as exc:
+        assert "sample_rate is required" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_scan_iq_blind_search_uses_candidate_path(monkeypatch):
+    calls = []
+
+    monkeypatch.setattr(pipeline, "psd_blind_search", lambda iq, fs, radio_config: [1000.0])
+
+    def fake_process_candidate(iq, fo, source_sample_rate, protocol_names, radio_config):
+        calls.append((fo, source_sample_rate, tuple(sorted(protocol_names))))
+        return [{"protocol": "DMR", "type": "candidate"}]
+
+    monkeypatch.setattr(pipeline, "process_candidate", fake_process_candidate)
+    monkeypatch.setattr(pipeline.protocols, "postprocess_pdus", lambda pdus, names: pdus)
+    monkeypatch.setattr(pipeline.protocols, "deduplicate_pdus", lambda pdus: pdus)
+
+    result = pipeline.scan_iq(
+        np.ones(4, dtype=complex),
+        sample_rate=2_500_000.0,
+        blind_search=True,
+        protocol_names={"dmr"},
+    )
+
+    assert calls == [(1000.0, 2_500_000.0, ("DMR",))]
+    assert result == [{"protocol": "DMR", "type": "candidate"}]

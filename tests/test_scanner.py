@@ -1,7 +1,9 @@
 import os
+import numpy as np
 import pytest
 from scanner import detect_sample_rate, scan_file
 import scanner
+from common.io import default_iq_scale, read_rawiq
 from radio import output as radio_output
 from radio.pdu import PDU
 
@@ -13,8 +15,21 @@ def test_detect_sample_rate_known():
 
 
 def test_detect_sample_rate_unknown():
-    assert detect_sample_rate("data/synthesized_wideband_2.5MHz.rawiq") is None
     assert detect_sample_rate("signal.rawiq") is None
+
+
+def test_detect_sample_rate_mhz_suffix():
+    assert detect_sample_rate("data/synthesized_wideband_2.5MHz.rawiq") == 2_500_000
+
+
+def test_read_rawiq_scale_follows_dtype(tmp_path):
+    path = tmp_path / "int8.rawiq"
+    np.array([64, -64, 127, -128], dtype=np.int8).tofile(path)
+
+    iq = read_rawiq(str(path), dtype="int8")
+
+    assert default_iq_scale("int8") == 128.0
+    assert np.allclose(iq, np.array([0.5 - 0.5j, 127 / 128 - 1j]))
 
 
 def test_scan_file_returns_list():
@@ -39,7 +54,7 @@ def test_scan_file_wideband():
     path = "data/synthesized_wideband_2.5MHz.rawiq"
     if not os.path.exists(path):
         pytest.skip(f"Data file not found: {path}")
-    results = scan_file(path)
+    results = scan_file(path, blind_search=True)
     assert isinstance(results, list)
     types = [r["type"] for r in results]
     assert any(t in ("LC_HEADER", "LATE_ENTRY", "CSBK", "TERMINATOR") for t in types), \
@@ -70,7 +85,7 @@ def test_scan_file_delegates_iq_processing_to_radio_pipeline(monkeypatch):
     pdus = [{"protocol": "DMR", "type": "LC_HEADER"}]
     calls = []
 
-    monkeypatch.setattr(scanner, "read_rawiq", lambda path: iq)
+    monkeypatch.setattr(scanner, "read_rawiq", lambda path, dtype="int16": iq)
     monkeypatch.setattr(scanner, "detect_sample_rate", lambda path: 48_000)
     monkeypatch.setattr(
         scanner.radio_output,
@@ -78,13 +93,14 @@ def test_scan_file_delegates_iq_processing_to_radio_pipeline(monkeypatch):
         lambda result: calls.append(("print", result)),
     )
 
-    def fake_scan_iq(iq_arg, sample_rate, freq_list, protocol_names, radio_config):
+    def fake_scan_iq(iq_arg, sample_rate, freq_list, blind_search, protocol_names, radio_config):
         calls.append((
             "scan_iq",
             iq_arg is iq,
             sample_rate,
             freq_list,
-            tuple(sorted(protocol_names)),
+            blind_search,
+            protocol_names,
             radio_config,
         ))
         return pdus
@@ -95,11 +111,12 @@ def test_scan_file_delegates_iq_processing_to_radio_pipeline(monkeypatch):
         "example.rawiq",
         freq_list=[1000.0],
         protocol_names=["dmr"],
+        blind_search=True,
     )
 
     assert result is pdus
     assert calls == [
-        ("scan_iq", True, 48_000, [1000.0], ("DMR",), scanner.RADIO_CONFIG),
+        ("scan_iq", True, 48_000, [1000.0], True, ["dmr"], scanner.RADIO_CONFIG),
         ("print", pdus),
     ]
 

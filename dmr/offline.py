@@ -1,5 +1,12 @@
 from __future__ import annotations
 
+"""Legacy DMR-only offline facade.
+
+New code should call scanner.scan_file(..., protocol_names=["dmr"]) or
+radio.pipeline.scan_iq(...). This module keeps old imports working while
+delegating all IQ orchestration to the unified offline pipeline.
+"""
+
 from common.io import detect_sample_rate, read_rawiq
 from dmr.engine import (
     BURST_STRIDE,

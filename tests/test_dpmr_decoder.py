@@ -4,9 +4,11 @@ import numpy as np
 import pytest
 
 from core.dsp import read_rawiq
+from dpmr.config import DPMRConfig
+import dpmr.decoder as dpmr_decoder
 from dpmr.cch import CCHRecord, air_interface_id_to_str, crc7, descramble
 from dpmr.decoder import decode, filter_stable_pdus
-from dpmr.dsp import find_dpmr_sync, frontend_dpmr
+from dpmr.dsp import DPMRSyncCandidate, find_dpmr_sync, frontend_dpmr
 from dpmr.constants import DIBIT_TO_LEVEL, DPMR_FRAME_SYMBOLS, FS1_SYMBOLS, FS2_SYMBOLS, SPS
 from dpmr.session import DPMRSessionAssembler
 
@@ -187,6 +189,104 @@ def test_filter_stable_pdus_keeps_repeated_color_over_single_high_quality():
 
     assert len(filtered) == 2
     assert {pdu["extra"]["color_code"] for pdu in filtered} == {2}
+
+
+def test_dpmr_decode_passes_config_to_sync_and_symbol_recovery(monkeypatch):
+    calls = []
+
+    def fake_find_fs1_sync(
+        y,
+        threshold,
+        max_symbol_errors,
+        min_distance_samples,
+        dedup_window_symbols,
+        sync_error_phase_search,
+    ):
+        calls.append((
+            "fs1",
+            threshold,
+            max_symbol_errors,
+            min_distance_samples,
+            dedup_window_symbols,
+            tuple(sync_error_phase_search),
+        ))
+        return [DPMRSyncCandidate(0, False, 0.95, "FS1")]
+
+    def fake_recover_frame_symbol_candidates(
+        y,
+        candidate,
+        total_symbols,
+        phase_search,
+        sps_search,
+        sample_windows,
+        limit,
+        decision_ambiguous_threshold,
+    ):
+        calls.append((
+            "header-symbols",
+            total_symbols,
+            tuple(phase_search),
+            tuple(sps_search),
+            sample_windows,
+            limit,
+            decision_ambiguous_threshold,
+        ))
+        return []
+
+    def fake_find_fs2_sync(
+        y,
+        threshold,
+        max_symbol_errors,
+        min_distance_samples,
+        dedup_window_symbols,
+        sync_error_phase_search,
+    ):
+        calls.append((
+            "fs2",
+            threshold,
+            max_symbol_errors,
+            min_distance_samples,
+            dedup_window_symbols,
+            tuple(sync_error_phase_search),
+        ))
+        return []
+
+    monkeypatch.setattr(dpmr_decoder, "find_fs1_sync", fake_find_fs1_sync)
+    monkeypatch.setattr(
+        dpmr_decoder,
+        "recover_frame_symbol_candidates",
+        fake_recover_frame_symbol_candidates,
+    )
+    monkeypatch.setattr(dpmr_decoder, "find_fs2_sync", fake_find_fs2_sync)
+
+    result = dpmr_decoder.decode(
+        np.zeros(2000),
+        config=DPMRConfig(
+            sync_threshold=0.9,
+            sync_max_symbol_errors=1,
+            sync_min_distance_samples=900,
+            sync_dedup_window_symbols=4,
+            sync_error_phase_min=-2.0,
+            sync_error_phase_max=2.0,
+            sync_error_phase_steps=3,
+            sps_search_min=18.0,
+            sps_search_max=20.0,
+            sps_search_steps=3,
+            phase_search_min=-1.0,
+            phase_search_max=1.0,
+            phase_search_steps=3,
+            sample_windows=(1,),
+            decision_ambiguous_threshold=0.25,
+            header_symbol_candidate_limit=11,
+        ),
+    )
+
+    assert result == []
+    assert calls == [
+        ("fs1", 0.9, 1, 900, 4, (-2.0, 0.0, 2.0)),
+        ("header-symbols", DPMR_FRAME_SYMBOLS, (-1.0, 0.0, 1.0), (18.0, 19.0, 20.0), (1,), 11, 0.25),
+        ("fs2", 0.9, 1, 900, 4, (-2.0, 0.0, 2.0)),
+    ]
 
 
 def test_dpmr_sample_exposes_only_high_confidence_ids():

@@ -16,10 +16,25 @@ class DPMRConfig:
     frontend_psd_nperseg: int = 4096
     nominal_deviation_hz: float = DPMR_DEV_NOMINAL
     sync_threshold: float = 0.82
+    sync_max_symbol_errors: int = 0
+    sync_min_distance_samples: int = 1_200
+    sync_dedup_window_symbols: int = 3
+    sync_error_phase_min: float = -12.0
+    sync_error_phase_max: float = 12.0
+    sync_error_phase_steps: int = 25
     sps_search_min: float = 19.0
     sps_search_max: float = 21.0
     sps_search_steps: int = 21
+    phase_search_min: float = -10.0
+    phase_search_max: float = 10.0
+    phase_search_steps: int = 41
+    sample_windows: tuple[int, ...] = (0, 3)
+    decision_ambiguous_threshold: float = 0.35
     frame_symbols: int = 384
+    header_sync_candidate_limit: int = 50
+    header_symbol_candidate_limit: int = 160
+    voice_sync_candidate_limit: int = 100
+    voice_symbol_candidate_limit: int = 40
     dedup_frame_bucket_samples: int = 3_840
     stable_color_min_repeats: int = 2
 

@@ -243,12 +243,32 @@ def test_protocol_decoder_wrappers_pass_config(monkeypatch):
         ))
         return []
 
-    def fake_p25(y, sps=10, sync_threshold=0.62):
-        calls.append(("p25", sps, sync_threshold))
+    def fake_p25(
+        y,
+        sps=10,
+        sync_threshold=0.62,
+        sync_min_distance_symbols=120,
+        stable_nac_min_count=5,
+        stable_nac_min_ratio=0.4,
+    ):
+        calls.append((
+            "p25",
+            sps,
+            sync_threshold,
+            sync_min_distance_symbols,
+            stable_nac_min_count,
+            stable_nac_min_ratio,
+        ))
         return []
 
-    def fake_dpmr(y, sync_threshold=0.82):
-        calls.append(("dpmr", sync_threshold))
+    def fake_dpmr(y, config=None):
+        calls.append((
+            "dpmr",
+            config.sync_threshold,
+            config.sps_search_min,
+            config.sps_search_max,
+            config.voice_symbol_candidate_limit,
+        ))
         return []
 
     monkeypatch.setattr(dmr_plugin, "_dmr_decode_loop", fake_dmr_loop)
@@ -263,10 +283,31 @@ def test_protocol_decoder_wrappers_pass_config(monkeypatch):
             voice_burst_stride_samples=4320,
         ),
     )
-    protocols.decode_p25(np.zeros(3), P25Config(samples_per_symbol=8, sync_threshold=0.7))
-    protocols.decode_dpmr(np.zeros(3), DPMRConfig(sync_threshold=0.9))
+    protocols.decode_p25(
+        np.zeros(3),
+        P25Config(
+            samples_per_symbol=8,
+            sync_threshold=0.7,
+            sync_min_distance_symbols=90,
+            stable_nac_min_count=3,
+            stable_nac_min_ratio=0.25,
+        ),
+    )
+    protocols.decode_dpmr(
+        np.zeros(3),
+        DPMRConfig(
+            sync_threshold=0.9,
+            sps_search_min=18.5,
+            sps_search_max=21.5,
+            voice_symbol_candidate_limit=24,
+        ),
+    )
 
-    assert calls == [("dmr", 0.71, 0.58, 4320), ("p25", 8, 0.7), ("dpmr", 0.9)]
+    assert calls == [
+        ("dmr", 0.71, 0.58, 4320),
+        ("p25", 8, 0.7, 90, 3, 0.25),
+        ("dpmr", 0.9, 18.5, 21.5, 24),
+    ]
 
 
 def test_protocol_frontend_wrappers_pass_config(monkeypatch):

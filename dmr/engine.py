@@ -67,7 +67,7 @@ def _decode_dmr_loop(y: np.ndarray, config: DMRConfig | None = None) -> list[dic
         if "VOICE" in sync_type:
             ph = _lock_voice_phase(y, center, polarity, sync_type)
             collector = LateEntryCollector()
-            for j in range(6):
+            for j in range(config.voice_burst_count):
                 ba = _recover_stepped_burst(
                     y,
                     center,

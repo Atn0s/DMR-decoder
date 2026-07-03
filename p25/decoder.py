@@ -14,7 +14,11 @@ from p25.sync import find_frame_sync
 from p25.session import P25SessionAssembler
 
 
-def _stable_frame_indexes(frames: list[dict]) -> set[int]:
+def _stable_frame_indexes(
+    frames: list[dict],
+    min_count: int = 5,
+    min_ratio: float = 0.4,
+) -> set[int]:
     valid = {i for i, f in enumerate(frames) if f["nid"].valid_bch is True}
     if valid:
         return valid
@@ -25,7 +29,7 @@ def _stable_frame_indexes(frames: list[dict]) -> set[int]:
     if not counts:
         return set()
     nac, count = max(counts.items(), key=lambda item: item[1])
-    if count < 5 or count < max(5, int(0.4 * len(frames))):
+    if count < min_count or count < max(min_count, int(min_ratio * len(frames))):
         return set()
     return {i for i, f in enumerate(frames) if f["nid"].nac == nac}
 
@@ -111,9 +115,17 @@ def decode(
     y: np.ndarray,
     sps: int = 10,
     sync_threshold: float = 0.62,
+    sync_min_distance_symbols: int = 120,
+    stable_nac_min_count: int = 5,
+    stable_nac_min_ratio: float = 0.4,
 ) -> list[dict]:
     frames: list[dict] = []
-    for candidate in find_frame_sync(y, sps=sps, threshold=sync_threshold):
+    for candidate in find_frame_sync(
+        y,
+        sps=sps,
+        threshold=sync_threshold,
+        min_distance_symbols=sync_min_distance_symbols,
+    ):
         symbols = recover_symbols_from_fs(
             y,
             candidate,
@@ -163,7 +175,11 @@ def decode(
             }
         )
 
-    keep = _stable_frame_indexes(frames)
+    keep = _stable_frame_indexes(
+        frames,
+        min_count=stable_nac_min_count,
+        min_ratio=stable_nac_min_ratio,
+    )
     results: list[dict] = []
     session = P25SessionAssembler()
     for i, rec in enumerate(frames):

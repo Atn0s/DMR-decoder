@@ -96,10 +96,17 @@ def _zero_mean_ncc(y: np.ndarray, ref: np.ndarray) -> np.ndarray:
     return corr / np.sqrt(energy * np.sum(wave ** 2))
 
 
-def _sync_error(y: np.ndarray, fs_start: int, ref: np.ndarray) -> tuple[int, float]:
+def _sync_error(
+    y: np.ndarray,
+    fs_start: int,
+    ref: np.ndarray,
+    phase_search: np.ndarray | None = None,
+) -> tuple[int, float]:
     best = (len(ref), float("inf"))
     ref_levels = _dibits_to_levels(ref)
-    for phase in np.linspace(-12, 12, 25):
+    if phase_search is None:
+        phase_search = np.linspace(-12, 12, 25)
+    for phase in phase_search:
         pos = fs_start + phase + np.arange(len(ref)) * SPS
         if pos[0] < 0 or pos[-1] >= len(y) - 1:
             continue
@@ -127,6 +134,9 @@ def find_dpmr_sync(
     y: np.ndarray,
     threshold: float = 0.82,
     max_symbol_errors: int = 0,
+    min_distance_samples: int = 1200,
+    dedup_window_symbols: int = 3,
+    sync_error_phase_search: np.ndarray | None = None,
 ) -> list[DPMRSyncCandidate]:
     refs = (
         ("FS1", False, FS1_SYMBOLS),
@@ -141,18 +151,23 @@ def find_dpmr_sync(
     candidates: list[tuple[int, str, bool, float, int, float]] = []
     for sync_type, inverted, ref in refs:
         ncc = _zero_mean_ncc(y, ref)
-        peaks, props = signal.find_peaks(ncc, height=threshold, distance=1200)
+        peaks, props = signal.find_peaks(ncc, height=threshold, distance=min_distance_samples)
         for peak, height in zip(peaks, props["peak_heights"]):
             fs_start = int(round(peak - (len(ref) * SPS) / 2))
             if fs_start < 0:
                 continue
-            errors, resid = _sync_error(y, fs_start, ref)
+            errors, resid = _sync_error(
+                y,
+                fs_start,
+                ref,
+                phase_search=sync_error_phase_search,
+            )
             if errors <= max_symbol_errors:
                 candidates.append((fs_start, sync_type, inverted, float(height), errors, resid))
     candidates.sort(key=lambda item: (item[0], item[4], item[5], -item[3]))
     deduped: list[tuple[int, str, bool, float, int, float]] = []
     for cand in candidates:
-        if deduped and abs(cand[0] - deduped[-1][0]) < SPS * 3:
+        if deduped and abs(cand[0] - deduped[-1][0]) < SPS * dedup_window_symbols:
             if (cand[4], cand[5], -cand[3]) < (
                 deduped[-1][4],
                 deduped[-1][5],
@@ -167,16 +182,44 @@ def find_dpmr_sync(
     ]
 
 
-def find_fs2_sync(y: np.ndarray, threshold: float = 0.82) -> list[DPMRSyncCandidate]:
+def find_fs2_sync(
+    y: np.ndarray,
+    threshold: float = 0.82,
+    max_symbol_errors: int = 0,
+    min_distance_samples: int = 1200,
+    dedup_window_symbols: int = 3,
+    sync_error_phase_search: np.ndarray | None = None,
+) -> list[DPMRSyncCandidate]:
     return [
-        candidate for candidate in find_dpmr_sync(y, threshold=threshold)
+        candidate for candidate in find_dpmr_sync(
+            y,
+            threshold=threshold,
+            max_symbol_errors=max_symbol_errors,
+            min_distance_samples=min_distance_samples,
+            dedup_window_symbols=dedup_window_symbols,
+            sync_error_phase_search=sync_error_phase_search,
+        )
         if candidate.sync_type == "FS2"
     ]
 
 
-def find_fs1_sync(y: np.ndarray, threshold: float = 0.82) -> list[DPMRSyncCandidate]:
+def find_fs1_sync(
+    y: np.ndarray,
+    threshold: float = 0.82,
+    max_symbol_errors: int = 0,
+    min_distance_samples: int = 1200,
+    dedup_window_symbols: int = 3,
+    sync_error_phase_search: np.ndarray | None = None,
+) -> list[DPMRSyncCandidate]:
     return [
-        candidate for candidate in find_dpmr_sync(y, threshold=threshold)
+        candidate for candidate in find_dpmr_sync(
+            y,
+            threshold=threshold,
+            max_symbol_errors=max_symbol_errors,
+            min_distance_samples=min_distance_samples,
+            dedup_window_symbols=dedup_window_symbols,
+            sync_error_phase_search=sync_error_phase_search,
+        )
         if candidate.sync_type == "FS1"
     ]
 
@@ -220,6 +263,7 @@ def recover_frame_symbol_candidates(
     sps_search: np.ndarray | None = None,
     sample_windows: tuple[int, ...] = (0, 3),
     limit: int = 8,
+    decision_ambiguous_threshold: float = 0.35,
 ) -> list[DPMRSymbolCandidate]:
     if phase_search is None:
         phase_search = np.linspace(-10, 10, 41)
@@ -260,7 +304,7 @@ def recover_frame_symbol_candidates(
                     float(phase),
                     sample_window,
                     float(np.percentile(decision_error, 90)),
-                    int(np.sum(decision_error > 0.35)),
+                    int(np.sum(decision_error > decision_ambiguous_threshold)),
                 ))
     recovered.sort(key=lambda item: item[0])
     return [
@@ -292,6 +336,7 @@ def recover_voice_fs2_symbol_candidates(
     sps_search: np.ndarray | None = None,
     sample_windows: tuple[int, ...] = (0, 3),
     limit: int = 8,
+    decision_ambiguous_threshold: float = 0.35,
 ) -> list[DPMRSymbolCandidate]:
     return recover_frame_symbol_candidates(
         y,
@@ -301,6 +346,7 @@ def recover_voice_fs2_symbol_candidates(
         sps_search=sps_search,
         sample_windows=sample_windows,
         limit=limit,
+        decision_ambiguous_threshold=decision_ambiguous_threshold,
     )
 
 

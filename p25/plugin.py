@@ -119,6 +119,9 @@ def decode(y: np.ndarray, config: object | None = None) -> list[dict]:
         y,
         sps=config.samples_per_symbol,
         sync_threshold=config.sync_threshold,
+        sync_min_distance_symbols=config.sync_min_distance_symbols,
+        stable_nac_min_count=config.stable_nac_min_count,
+        stable_nac_min_ratio=config.stable_nac_min_ratio,
     )
 
 

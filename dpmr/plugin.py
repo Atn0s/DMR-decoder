@@ -80,7 +80,7 @@ def format_cch(cch_records: list[dict | None]) -> str:
 def decode(y: np.ndarray, config: object | None = None) -> list[dict]:
     if config is None:
         config = DEFAULT_DPMR_CONFIG
-    return _decode_dpmr(y, sync_threshold=config.sync_threshold)
+    return _decode_dpmr(y, config=config)
 
 
 SPEC = ProtocolSpec(

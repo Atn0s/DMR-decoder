@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from dpmr.cch import CCHRecord, decode_cch
 from dpmr.color_code import get_color_code
+from dpmr.config import DEFAULT_DPMR_CONFIG, DPMRConfig
 from dpmr.constants import CC_SYMBOLS, CCH_SYMBOLS, DPMR_FRAME_SYMBOLS, FS1_SYMBOLS
 from dpmr.dsp import (
     find_fs1_sync,
@@ -182,12 +185,47 @@ def _header_score(records: list[CCHRecord], color_codes: list[int], resid: float
     return score - 0.2 * resid
 
 
-def _decode_header_frame(y: np.ndarray, sync_threshold: float) -> list[dict]:
+def _sync_error_phase_search(config: DPMRConfig) -> np.ndarray:
+    return np.linspace(
+        config.sync_error_phase_min,
+        config.sync_error_phase_max,
+        config.sync_error_phase_steps,
+    )
+
+
+def _symbol_phase_search(config: DPMRConfig) -> np.ndarray:
+    return np.linspace(
+        config.phase_search_min,
+        config.phase_search_max,
+        config.phase_search_steps,
+    )
+
+
+def _sps_search(config: DPMRConfig) -> np.ndarray:
+    return np.linspace(
+        config.sps_search_min,
+        config.sps_search_max,
+        config.sps_search_steps,
+    )
+
+
+def _decode_header_frame(y: np.ndarray, config: DPMRConfig) -> list[dict]:
     results: list[dict] = []
     seen: set[int] = set()
-    sync_candidates = find_fs1_sync(y, threshold=sync_threshold)
-    if len(sync_candidates) > 50:
-        sync_candidates = sorted(sync_candidates, key=lambda item: item.ncc, reverse=True)[:50]
+    sync_candidates = find_fs1_sync(
+        y,
+        threshold=config.sync_threshold,
+        max_symbol_errors=config.sync_max_symbol_errors,
+        min_distance_samples=config.sync_min_distance_samples,
+        dedup_window_symbols=config.sync_dedup_window_symbols,
+        sync_error_phase_search=_sync_error_phase_search(config),
+    )
+    if len(sync_candidates) > config.header_sync_candidate_limit:
+        sync_candidates = sorted(
+            sync_candidates,
+            key=lambda item: item.ncc,
+            reverse=True,
+        )[:config.header_sync_candidate_limit]
         sync_candidates.sort(key=lambda item: item.fs_start)
 
     for candidate in sync_candidates:
@@ -200,7 +238,11 @@ def _decode_header_frame(y: np.ndarray, sync_threshold: float) -> list[dict]:
             y,
             candidate,
             total_symbols=DPMR_FRAME_SYMBOLS,
-            limit=160,
+            phase_search=_symbol_phase_search(config),
+            sps_search=_sps_search(config),
+            sample_windows=config.sample_windows,
+            limit=config.header_symbol_candidate_limit,
+            decision_ambiguous_threshold=config.decision_ambiguous_threshold,
         )
         if not symbol_candidates:
             continue
@@ -364,13 +406,32 @@ def filter_stable_pdus(pdus: list[dict], min_repeats: int = 2) -> list[dict]:
     return filtered
 
 
-def decode(y: np.ndarray, sync_threshold: float = 0.82) -> list[dict]:
-    results: list[dict] = _decode_header_frame(y, sync_threshold)
+def decode(
+    y: np.ndarray,
+    sync_threshold: float | None = None,
+    config: DPMRConfig | None = None,
+) -> list[dict]:
+    config = config or DEFAULT_DPMR_CONFIG
+    if sync_threshold is not None:
+        config = replace(config, sync_threshold=sync_threshold)
+
+    results: list[dict] = _decode_header_frame(y, config)
     session = DPMRSessionAssembler()
     seen: set[int] = set()
-    sync_candidates = find_fs2_sync(y, threshold=sync_threshold)
-    if len(sync_candidates) > 100:
-        sync_candidates = sorted(sync_candidates, key=lambda item: item.ncc, reverse=True)[:100]
+    sync_candidates = find_fs2_sync(
+        y,
+        threshold=config.sync_threshold,
+        max_symbol_errors=config.sync_max_symbol_errors,
+        min_distance_samples=config.sync_min_distance_samples,
+        dedup_window_symbols=config.sync_dedup_window_symbols,
+        sync_error_phase_search=_sync_error_phase_search(config),
+    )
+    if len(sync_candidates) > config.voice_sync_candidate_limit:
+        sync_candidates = sorted(
+            sync_candidates,
+            key=lambda item: item.ncc,
+            reverse=True,
+        )[:config.voice_sync_candidate_limit]
         sync_candidates.sort(key=lambda item: item.fs_start)
     for candidate in sync_candidates:
         bucket = round(candidate.fs_start / 240)
@@ -378,7 +439,15 @@ def decode(y: np.ndarray, sync_threshold: float = 0.82) -> list[dict]:
             continue
         seen.add(bucket)
 
-        symbol_candidates = recover_voice_fs2_symbol_candidates(y, candidate, limit=40)
+        symbol_candidates = recover_voice_fs2_symbol_candidates(
+            y,
+            candidate,
+            phase_search=_symbol_phase_search(config),
+            sps_search=_sps_search(config),
+            sample_windows=config.sample_windows,
+            limit=config.voice_symbol_candidate_limit,
+            decision_ambiguous_threshold=config.decision_ambiguous_threshold,
+        )
         if not symbol_candidates:
             continue
         best = None

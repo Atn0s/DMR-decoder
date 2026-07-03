@@ -14,6 +14,9 @@ class P25Config:
     frontend_psd_nperseg: int = 4096
     nominal_deviation_hz: float = 1_944.0
     sync_threshold: float = 0.62
+    sync_min_distance_symbols: int = 120
+    stable_nac_min_count: int = 5
+    stable_nac_min_ratio: float = 0.4
     ldu_symbols: int = 864
     dedup_frame_bucket_samples: int = 8_640
 

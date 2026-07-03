@@ -27,6 +27,7 @@ class DMRConfig:
     sync_threshold_data: float = NCC_THRESHOLD_DATA
     sync_peak_distance_samples: int = 800
     voice_burst_stride_samples: int = 2_880
+    voice_burst_count: int = 6
     burst_dedup_window_samples: int = 50
     dedup_frequency_bucket_hz: float = 5_000.0
 

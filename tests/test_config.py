@@ -47,6 +47,7 @@ def test_dmr_config_matches_legacy_decode_parameters():
     assert DEFAULT_DMR_CONFIG.sync_threshold_data == NCC_THRESHOLD_DATA
     assert DEFAULT_DMR_CONFIG.sync_peak_distance_samples == 800
     assert DEFAULT_DMR_CONFIG.voice_burst_stride_samples == BURST_STRIDE
+    assert DEFAULT_DMR_CONFIG.voice_burst_count == 6
     assert DEFAULT_DMR_CONFIG.burst_dedup_window_samples == 50
     assert DEFAULT_DMR_CONFIG.dedup_frequency_bucket_hz == 5_000.0
 
@@ -56,9 +57,27 @@ def test_protocol_configs_capture_frontend_and_dedup_defaults():
     assert DEFAULT_DMR_CONFIG.frontend_psd_nperseg == 4096
     assert DEFAULT_P25_CONFIG.frontend_min_samples == 512
     assert DEFAULT_P25_CONFIG.frontend_psd_nperseg == 4096
+    assert DEFAULT_P25_CONFIG.sync_min_distance_symbols == 120
+    assert DEFAULT_P25_CONFIG.stable_nac_min_count == 5
+    assert DEFAULT_P25_CONFIG.stable_nac_min_ratio == 0.4
     assert DEFAULT_P25_CONFIG.dedup_frame_bucket_samples == 8_640
     assert DEFAULT_DPMR_CONFIG.frontend_min_samples == 512
     assert DEFAULT_DPMR_CONFIG.frontend_psd_nperseg == 4096
+    assert DEFAULT_DPMR_CONFIG.sync_max_symbol_errors == 0
+    assert DEFAULT_DPMR_CONFIG.sync_min_distance_samples == 1_200
+    assert DEFAULT_DPMR_CONFIG.sync_dedup_window_symbols == 3
+    assert DEFAULT_DPMR_CONFIG.sync_error_phase_min == -12.0
+    assert DEFAULT_DPMR_CONFIG.sync_error_phase_max == 12.0
+    assert DEFAULT_DPMR_CONFIG.sync_error_phase_steps == 25
+    assert DEFAULT_DPMR_CONFIG.phase_search_min == -10.0
+    assert DEFAULT_DPMR_CONFIG.phase_search_max == 10.0
+    assert DEFAULT_DPMR_CONFIG.phase_search_steps == 41
+    assert DEFAULT_DPMR_CONFIG.sample_windows == (0, 3)
+    assert DEFAULT_DPMR_CONFIG.decision_ambiguous_threshold == 0.35
+    assert DEFAULT_DPMR_CONFIG.header_sync_candidate_limit == 50
+    assert DEFAULT_DPMR_CONFIG.header_symbol_candidate_limit == 160
+    assert DEFAULT_DPMR_CONFIG.voice_sync_candidate_limit == 100
+    assert DEFAULT_DPMR_CONFIG.voice_symbol_candidate_limit == 40
     assert DEFAULT_DPMR_CONFIG.dedup_frame_bucket_samples == 3_840
     assert DEFAULT_DPMR_CONFIG.stable_color_min_repeats == 2
 

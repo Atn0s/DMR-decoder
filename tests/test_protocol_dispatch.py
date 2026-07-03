@@ -79,6 +79,31 @@ def test_decode_dmr_adds_protocol_key(monkeypatch):
 
     assert result[0]["protocol"] == "DMR"
     assert result[0]["type"] == "CSBK"
+    assert result[0]["ts"] is None
+    assert result[0]["extra"] == {}
+
+
+def test_protocol_plugin_decodes_normalize_schema_defaults(monkeypatch):
+    monkeypatch.setattr(
+        p25_plugin,
+        "_decode_p25",
+        lambda *args, **kwargs: [{"protocol": "P25", "type": "P25_NID"}],
+    )
+    monkeypatch.setattr(
+        dpmr_plugin,
+        "_decode_dpmr",
+        lambda *args, **kwargs: [{"protocol": "dPMR", "type": "DPMR_VOICE"}],
+    )
+
+    p25_result = protocols.decode_p25(np.zeros(3))[0]
+    dpmr_result = protocols.decode_dpmr(np.zeros(3))[0]
+
+    assert p25_result["src"] == 0
+    assert p25_result["dst"] == 0
+    assert p25_result["extra"] == {}
+    assert dpmr_result["src"] == 0
+    assert dpmr_result["dst"] == 0
+    assert dpmr_result["extra"] == {}
 
 
 def test_protocol_dedup_key_is_protocol_aware():

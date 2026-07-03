@@ -6,6 +6,7 @@ from dpmr.config import DEFAULT_DPMR_CONFIG
 from dpmr.decoder import decode as _decode_dpmr
 from dpmr.decoder import filter_stable_pdus
 from dpmr.dsp import frontend_dpmr
+from radio.pdu import pdus_to_standard_dicts
 from radio.protocol import ProtocolSpec
 
 
@@ -80,7 +81,7 @@ def format_cch(cch_records: list[dict | None]) -> str:
 def decode(y: np.ndarray, config: object | None = None) -> list[dict]:
     if config is None:
         config = DEFAULT_DPMR_CONFIG
-    return _decode_dpmr(y, config=config)
+    return pdus_to_standard_dicts(_decode_dpmr(y, config=config))
 
 
 SPEC = ProtocolSpec(

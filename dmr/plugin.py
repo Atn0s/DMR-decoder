@@ -5,6 +5,7 @@ import numpy as np
 from dmr.config import DEFAULT_DMR_CONFIG
 import dmr.engine as dmr_engine
 from dmr.dsp import frontend as _frontend_c4fm
+from radio.pdu import pdus_to_standard_dicts
 from radio.protocol import ProtocolSpec, call_decoder, postprocess_identity
 
 
@@ -52,7 +53,7 @@ def _dmr_decode_loop(y: np.ndarray, config: object | None = None) -> list[dict]:
 def decode(y: np.ndarray, config: object | None = None) -> list[dict]:
     if config is None:
         config = DEFAULT_DMR_CONFIG
-    pdus = call_decoder(_dmr_decode_loop, y, config)
+    pdus = pdus_to_standard_dicts(call_decoder(_dmr_decode_loop, y, config))
     for pdu in pdus:
         pdu.setdefault("protocol", "DMR")
     return pdus

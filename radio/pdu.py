@@ -166,6 +166,32 @@ def pdu_to_dict(
     return data
 
 
+def pdu_to_standard_dict(
+    pdu: Mapping[str, Any] | PDU,
+    include_raw_bits: bool = True,
+    include_meta: bool = False,
+) -> dict[str, Any]:
+    return normalize_pdu(pdu).to_dict(
+        include_raw_bits=include_raw_bits,
+        include_meta=include_meta,
+    )
+
+
+def pdus_to_standard_dicts(
+    pdus: list[Mapping[str, Any] | PDU],
+    include_raw_bits: bool = True,
+    include_meta: bool = False,
+) -> list[dict[str, Any]]:
+    return [
+        pdu_to_standard_dict(
+            pdu,
+            include_raw_bits=include_raw_bits,
+            include_meta=include_meta,
+        )
+        for pdu in pdus
+    ]
+
+
 def set_pdu_meta(pdu: Mapping[str, Any] | PDU, key: str, value: Any) -> None:
     meta_key = key[1:] if key.startswith("_") else key
     if isinstance(pdu, PDU):

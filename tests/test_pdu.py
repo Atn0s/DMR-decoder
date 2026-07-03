@@ -1,4 +1,12 @@
-from radio.pdu import PDU, normalize_pdu, pdu_get, pdu_to_dict, set_pdu_meta
+from radio.pdu import (
+    PDU,
+    normalize_pdu,
+    pdus_to_standard_dicts,
+    pdu_get,
+    pdu_to_dict,
+    pdu_to_standard_dict,
+    set_pdu_meta,
+)
 
 
 def test_pdu_from_dict_moves_legacy_metadata_to_meta_and_preserves_output():
@@ -56,6 +64,25 @@ def test_pdu_helpers_accept_dict_and_pdu():
     assert pdu_get(pdu, "_rf_hz") == 435_000_000.0
     assert pdu_to_dict(raw) == raw
     assert pdu_to_dict(pdu)["_rf_hz"] == 435_000_000.0
+
+
+def test_standard_dict_helpers_fill_schema_defaults():
+    raw = {"protocol": "P25", "type": "P25_NID", "custom": "kept"}
+
+    out = pdu_to_standard_dict(raw)
+
+    assert out == {
+        "protocol": "P25",
+        "type": "P25_NID",
+        "src": 0,
+        "dst": 0,
+        "ts": None,
+        "flco": "",
+        "fid": "",
+        "extra": {},
+        "custom": "kept",
+    }
+    assert pdus_to_standard_dicts([raw]) == [out]
 
 
 def test_set_pdu_meta_writes_legacy_dict_key_or_pdu_meta():

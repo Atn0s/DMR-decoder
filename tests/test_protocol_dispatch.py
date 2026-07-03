@@ -9,6 +9,7 @@ import dpmr.plugin as dpmr_plugin
 from p25.config import P25Config
 import p25.plugin as p25_plugin
 import protocols
+from radio import output as radio_output
 from radio.pdu import PDU
 
 
@@ -367,9 +368,7 @@ def test_protocol_frontend_wrappers_pass_config(monkeypatch):
 
 
 def test_print_results_accepts_p25_nid(capsys):
-    import scanner
-
-    scanner._print_results([
+    radio_output.print_results([
         {
             "protocol": "P25",
             "type": "P25_NID",
@@ -388,9 +387,7 @@ def test_print_results_accepts_p25_nid(capsys):
 
 
 def test_print_results_accepts_dpmr_voice(capsys):
-    import scanner
-
-    scanner._print_results([
+    radio_output.print_results([
         {
             "protocol": "dPMR",
             "type": "DPMR_VOICE",
@@ -449,9 +446,7 @@ def test_print_results_accepts_dpmr_voice(capsys):
 
 
 def test_print_results_accepts_dpmr_header(capsys):
-    import scanner
-
-    scanner._print_results([
+    radio_output.print_results([
         {
             "protocol": "dPMR",
             "type": "DPMR_HEADER",

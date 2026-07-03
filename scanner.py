@@ -1,11 +1,10 @@
-import json
 import os
 
 import protocols
 from common.config import DEFAULT_RADIO_CONFIG
 from common.io import detect_sample_rate as _detect_sample_rate, read_rawiq
+from radio import output as radio_output
 from radio import pipeline as radio_pipeline
-from radio.pdu import pdu_to_dict
 
 
 SUPPORTED_PROTOCOLS = protocols.SUPPORTED_PROTOCOLS
@@ -45,22 +44,10 @@ def scan_file(path: str, freq_list: list[float] | None = None,
         radio_config=RADIO_CONFIG,
     )
 
-    _print_results(unique)
+    radio_output.print_results(unique)
     if output_json:
-        _write_json(unique, output_json)
+        radio_output.write_json(unique, output_json)
     return unique
-
-
-def _print_results(pdus: list[dict]) -> None:
-    for p in pdus:
-        print(protocols.format_pdu(p))
-
-
-def _write_json(pdus: list[dict], path: str) -> None:
-    clean = [pdu_to_dict(p, include_raw_bits=False) for p in pdus]
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w") as f:
-        json.dump(clean, f, indent=2, default=str)
 
 
 def main(argv: list[str] | None = None) -> int:

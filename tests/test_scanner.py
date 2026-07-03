@@ -2,6 +2,7 @@ import os
 import pytest
 from scanner import detect_sample_rate, scan_file
 import scanner
+from radio import output as radio_output
 from radio.pdu import PDU
 
 
@@ -71,7 +72,11 @@ def test_scan_file_delegates_iq_processing_to_radio_pipeline(monkeypatch):
 
     monkeypatch.setattr(scanner, "read_rawiq", lambda path: iq)
     monkeypatch.setattr(scanner, "detect_sample_rate", lambda path: 48_000)
-    monkeypatch.setattr(scanner, "_print_results", lambda result: calls.append(("print", result)))
+    monkeypatch.setattr(
+        scanner.radio_output,
+        "print_results",
+        lambda result: calls.append(("print", result)),
+    )
 
     def fake_scan_iq(iq_arg, sample_rate, freq_list, protocol_names, radio_config):
         calls.append((
@@ -110,7 +115,7 @@ def test_write_json_accepts_pdu_dataclass(tmp_path):
         "_fo_hz": 1250.0,
     })
 
-    scanner._write_json([pdu], out)
+    radio_output.write_json([pdu], out)
 
     import json
     with open(out) as f:

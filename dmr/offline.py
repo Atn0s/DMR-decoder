@@ -8,9 +8,9 @@ delegating all IQ orchestration to the unified offline pipeline.
 """
 
 from common.io import detect_sample_rate, read_rawiq
-from dmr.engine import (
+from dmr.decode_flow import (
     BURST_STRIDE,
-    _decode_dmr_loop,
+    decode_dmr_flow,
     _lock_voice_phase,
     _recover_stepped_burst,
     decode,

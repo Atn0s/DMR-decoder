@@ -1,5 +1,5 @@
 """dPMR metadata decoder."""
 
-from dpmr.decoder import decode
+from dpmr.decode_flow import decode
 
 __all__ = ["decode"]

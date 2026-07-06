@@ -4,7 +4,7 @@ import numpy as np
 
 from dmr.config import DEFAULT_DMR_CONFIG, DMRConfig
 from dmr.constants import SPS, SYNC_TEMPLATES
-from dmr.decoder import LateEntryCollector, decode_burst
+from dmr.link_layer import LateEntryCollector, decode_burst
 from dmr.dsp import _interp, adaptive_slice_bits, find_sync_positions, recover_burst
 
 
@@ -47,7 +47,7 @@ def _recover_stepped_burst(
     return adaptive_slice_bits(seg)
 
 
-def _decode_dmr_loop(y: np.ndarray, config: DMRConfig | None = None) -> list[dict]:
+def decode_dmr_flow(y: np.ndarray, config: DMRConfig | None = None) -> list[dict]:
     config = config or DEFAULT_DMR_CONFIG
     positions = find_sync_positions(
         y,
@@ -94,7 +94,7 @@ def _decode_dmr_loop(y: np.ndarray, config: DMRConfig | None = None) -> list[dic
 
 
 def decode(y: np.ndarray, config: DMRConfig | None = None) -> list[dict]:
-    pdus = _decode_dmr_loop(y, config)
+    pdus = decode_dmr_flow(y, config)
     for pdu in pdus:
         pdu.setdefault("protocol", "DMR")
     return pdus

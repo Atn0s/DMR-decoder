@@ -4,7 +4,7 @@ import numpy as np
 
 from common.dsp import fsk_frontend
 from p25.config import DEFAULT_P25_CONFIG
-from p25.decoder import decode as _decode_p25
+from p25.decode_flow import decode as _decode_p25
 from radio.pdu import pdus_to_standard_dicts
 from radio.protocol import ProtocolSpec, postprocess_identity
 

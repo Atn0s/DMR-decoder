@@ -2,7 +2,7 @@ import numpy as np
 from bitarray import bitarray
 from core.decoder import decode_burst, LateEntryCollector
 from dmr.config import DMRConfig
-import dmr.engine as dmr_engine
+import dmr.decode_flow as dmr_decode_flow
 
 
 def test_decode_burst_garbage_returns_none():
@@ -122,9 +122,9 @@ def test_dmr_decode_loop_passes_config_to_sync_and_voice_recovery(monkeypatch):
         calls.append(("voice", anchor, j, ph, polarity, burst_stride_samples))
         return None
 
-    monkeypatch.setattr(dmr_engine, "find_sync_positions", fake_find_sync_positions)
-    monkeypatch.setattr(dmr_engine, "_lock_voice_phase", lambda *args: 0.25)
-    monkeypatch.setattr(dmr_engine, "_recover_stepped_burst", fake_recover_stepped_burst)
+    monkeypatch.setattr(dmr_decode_flow, "find_sync_positions", fake_find_sync_positions)
+    monkeypatch.setattr(dmr_decode_flow, "_lock_voice_phase", lambda *args: 0.25)
+    monkeypatch.setattr(dmr_decode_flow, "_recover_stepped_burst", fake_recover_stepped_burst)
 
     config = DMRConfig(
         sync_threshold_voice=0.72,
@@ -133,7 +133,7 @@ def test_dmr_decode_loop_passes_config_to_sync_and_voice_recovery(monkeypatch):
         voice_burst_stride_samples=4320,
     )
 
-    result = dmr_engine._decode_dmr_loop(np.zeros(10), config)
+    result = dmr_decode_flow.decode_dmr_flow(np.zeros(10), config)
 
     assert result == []
     assert calls == [
@@ -146,7 +146,7 @@ def test_dmr_decode_loop_uses_configured_burst_dedup_window(monkeypatch):
     calls = []
 
     monkeypatch.setattr(
-        dmr_engine,
+        dmr_decode_flow,
         "find_sync_positions",
         lambda *args, **kwargs: [
             (1000, 1.0, "DATA_MS"),
@@ -159,9 +159,9 @@ def test_dmr_decode_loop_uses_configured_burst_dedup_window(monkeypatch):
         calls.append(center)
         return None
 
-    monkeypatch.setattr(dmr_engine, "recover_burst", fake_recover_burst)
+    monkeypatch.setattr(dmr_decode_flow, "recover_burst", fake_recover_burst)
 
-    result = dmr_engine._decode_dmr_loop(
+    result = dmr_decode_flow.decode_dmr_flow(
         np.zeros(1200),
         DMRConfig(burst_dedup_window_samples=50),
     )

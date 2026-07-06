@@ -2,7 +2,7 @@ import numpy as np
 from bitarray import bitarray
 
 from p25.constants import FRAME_SYNC_SYMBOLS, dibits_to_symbols
-from p25.decoder import decode
+from p25.decode_flow import decode
 from p25.fec import bch_63_16_encode
 
 

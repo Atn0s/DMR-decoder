@@ -8,9 +8,6 @@ import scipy.signal as signal
 from common.dsp import interp
 from common.dsp import fsk_frontend
 from dpmr.constants import (
-    CC_SYMBOLS,
-    CCH_SYMBOLS,
-    DIBIT_TO_BITS,
     DIBIT_TO_LEVEL,
     DPMR_DEV_NOMINAL,
     DPMR_FRONTEND_CUTOFF,
@@ -24,7 +21,6 @@ from dpmr.constants import (
     INV_FS3_SYMBOLS,
     INV_FS4_SYMBOLS,
     SPS,
-    TCH_SYMBOLS,
     VOICE_FS2_TOTAL_SYMBOLS,
 )
 
@@ -339,20 +335,3 @@ def recover_voice_fs2_symbol_candidates(
         limit=limit,
         decision_ambiguous_threshold=decision_ambiguous_threshold,
     )
-
-
-def symbols_to_bits(symbols: np.ndarray) -> list[int]:
-    out: list[int] = []
-    for sym in symbols:
-        out.extend(DIBIT_TO_BITS[int(sym) & 3])
-    return out
-
-
-def split_voice_fs2(symbols: np.ndarray) -> tuple[list[int], list[int], list[int]]:
-    offset = len(FS2_SYMBOLS)
-    cch0 = symbols_to_bits(symbols[offset:offset + CCH_SYMBOLS])
-    offset += CCH_SYMBOLS + TCH_SYMBOLS
-    cc = symbols_to_bits(symbols[offset:offset + CC_SYMBOLS])
-    offset += CC_SYMBOLS
-    cch1 = symbols_to_bits(symbols[offset:offset + CCH_SYMBOLS])
-    return cch0, cc, cch1

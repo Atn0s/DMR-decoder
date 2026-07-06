@@ -5,9 +5,9 @@ import pytest
 
 from core.dsp import read_rawiq
 from dpmr.config import DPMRConfig
-import dpmr.decoder as dpmr_decoder
+import dpmr.decode_flow as dpmr_decode_flow
 from dpmr.cch import CCHRecord, air_interface_id_to_str, crc7, descramble
-from dpmr.decoder import decode, filter_stable_pdus
+from dpmr.decode_flow import decode, filter_stable_pdus
 from dpmr.dsp import DPMRSyncCandidate, find_dpmr_sync, frontend_dpmr
 from dpmr.constants import DIBIT_TO_LEVEL, DPMR_FRAME_SYMBOLS, FS1_SYMBOLS, FS2_SYMBOLS, SPS
 from dpmr.session import DPMRSessionAssembler
@@ -251,15 +251,15 @@ def test_dpmr_decode_passes_config_to_sync_and_symbol_recovery(monkeypatch):
         ))
         return []
 
-    monkeypatch.setattr(dpmr_decoder, "find_fs1_sync", fake_find_fs1_sync)
+    monkeypatch.setattr(dpmr_decode_flow, "find_fs1_sync", fake_find_fs1_sync)
     monkeypatch.setattr(
-        dpmr_decoder,
+        dpmr_decode_flow,
         "recover_frame_symbol_candidates",
         fake_recover_frame_symbol_candidates,
     )
-    monkeypatch.setattr(dpmr_decoder, "find_fs2_sync", fake_find_fs2_sync)
+    monkeypatch.setattr(dpmr_decode_flow, "find_fs2_sync", fake_find_fs2_sync)
 
-    result = dpmr_decoder.decode(
+    result = dpmr_decode_flow.decode(
         np.zeros(2000),
         config=DPMRConfig(
             sync_threshold=0.9,

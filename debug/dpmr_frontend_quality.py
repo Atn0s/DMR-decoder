@@ -44,7 +44,8 @@ from dpmr.constants import (
     TCH_SYMBOLS,
     VOICE_FS2_TOTAL_SYMBOLS,
 )
-from dpmr.dsp import DPMRSyncCandidate, find_fs2_sync, recover_voice_fs2_symbol_candidates, split_voice_fs2
+from dpmr.link_layer import split_voice_fs2
+from dpmr.dsp import DPMRSyncCandidate, find_fs2_sync, recover_voice_fs2_symbol_candidates
 
 
 LEVELS = np.array([-3.0, -1.0, 1.0, 3.0])

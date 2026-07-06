@@ -5,7 +5,7 @@ from dmr.constants import (
     NCC_THRESHOLD_DATA,
     NCC_THRESHOLD_VOICE,
 )
-from dmr.engine import BURST_STRIDE
+from dmr.decode_flow import BURST_STRIDE
 from dpmr.config import DEFAULT_DPMR_CONFIG
 from p25.config import DEFAULT_P25_CONFIG
 from radio.pipeline import resample_factors

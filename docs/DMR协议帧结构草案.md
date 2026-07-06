@@ -2,7 +2,7 @@
 
 > 版本：v0.1  
 > 适用范围：当前工程中的 DMR 离线解码链路，以及后续完善实时/宽带链路时的协议结构参考。  
-> 主要代码参考：`dmr/constants.py`、`dmr/dsp.py`、`dmr/decoder.py`、`dmr/offline.py`。  
+> 主要代码参考：`dmr/constants.py`、`dmr/dsp.py`、`dmr/decode_flow.py`、`dmr/link_layer.py`、`dmr/offline.py`。
 > 标准参考方向：ETSI TS 102 361 系列。本文先按当前工程已实现和已验证的结构展开，未完整实现的业务类型会标注为“待补全”。
 
 ## 1. 基本参数
@@ -401,7 +401,7 @@ Voice LC Header 的发送端组织顺序：
 | 同步检测 | `dmr.dsp.find_sync_positions()` |
 | 突发恢复 | `dmr.dsp.recover_burst()` |
 | 四电平判决 | `dmr.dsp.adaptive_slice_bits()` |
-| Slot Type / Golay | `dmr.decoder.decode_burst()` |
+| Slot Type / Golay | `dmr.link_layer.decode_burst()` |
 | BPTC | `BPTC19696.deinterleave_data_bits()` |
 | RS | `ReedSolomon1294.check()` |
 | FLC | `FullLinkControl.from_bits()` |
@@ -453,7 +453,7 @@ rawiq file
        FM 鉴频
        低通滤波
        nominal deviation 归一化
-  -> dmr.engine._decode_dmr_loop()
+  -> dmr.decode_flow.decode_dmr_flow()
        find_sync_positions()
        Data Sync -> decode_burst()
        Voice Sync -> LateEntryCollector

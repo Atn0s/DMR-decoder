@@ -2,7 +2,7 @@
 
 > 版本：v0.1  
 > 适用范围：当前工程中的 dPMR 离线解码链路，以及后续编写 DMR/P25 协议文档时的格式模板。  
-> 主要代码参考：`dpmr/constants.py`、`dpmr/dsp.py`、`dpmr/cch.py`、`dpmr/decoder.py`、`dpmr/session.py`。  
+> 主要代码参考：`dpmr/constants.py`、`dpmr/dsp.py`、`dpmr/decode_flow.py`、`dpmr/cch.py`、`dpmr/link_layer.py`、`dpmr/session.py`。
 > 标准参考方向：ETSI TS 102 658 / TS 102 490。本文先按当前工程已实现和已验证的结构展开，未在工程中完整解码的业务帧会标注为“待补全”。
 
 ## 1. 基本参数
@@ -498,10 +498,10 @@ FS2 frame #k+1
 当前工程对应：
 
 ```text
-dpmr.decoder.decode()
+dpmr.decode_flow.decode()
   -> find_fs2_sync()
   -> recover_voice_fs2_symbol_candidates()
-  -> split_voice_fs2()
+  -> dpmr.link_layer.decode_voice_symbols()
   -> decode_cch(cch0_bits)
   -> get_color_code(cc_bits)
   -> decode_cch(cch1_bits)
@@ -520,7 +520,7 @@ rawiq file
        FM 鉴频
        低通滤波
        nominal deviation 归一化
-  -> dpmr.decoder.decode()
+  -> dpmr.decode_flow.decode()
        FS1/FS2 同步搜索
        符号相位 / SPS 搜索
        4FSK 四电平判决

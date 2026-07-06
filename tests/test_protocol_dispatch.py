@@ -8,7 +8,7 @@ from dpmr.config import DPMRConfig
 import dpmr.plugin as dpmr_plugin
 from p25.config import P25Config
 import p25.plugin as p25_plugin
-import dmr.engine as dmr_engine
+import dmr.decode_flow as dmr_decode_flow
 from radio import registry
 from radio import output as radio_output
 from radio.pdu import PDU
@@ -34,7 +34,7 @@ def test_decode_dmr_adds_protocol_key(monkeypatch):
     def fake_loop(y, config):
         return [{"type": "CSBK", "src": 10, "dst": 20}]
 
-    monkeypatch.setattr(dmr_engine, "_decode_dmr_loop", fake_loop)
+    monkeypatch.setattr(dmr_decode_flow, "decode_dmr_flow", fake_loop)
 
     result = dmr_plugin.decode(np.zeros(1000))
 
@@ -245,7 +245,7 @@ def test_protocol_decoder_wrappers_pass_config(monkeypatch):
         ))
         return []
 
-    monkeypatch.setattr(dmr_engine, "_decode_dmr_loop", fake_dmr_loop)
+    monkeypatch.setattr(dmr_decode_flow, "decode_dmr_flow", fake_dmr_loop)
     monkeypatch.setattr(p25_plugin, "_decode_p25", fake_p25)
     monkeypatch.setattr(dpmr_plugin, "_decode_dpmr", fake_dpmr)
 

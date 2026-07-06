@@ -17,7 +17,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from core.dsp import read_rawiq
-from dpmr.decoder import decode, filter_stable_pdus
+from dpmr.decode_flow import decode, filter_stable_pdus
 from dpmr.dsp import frontend_dpmr
 
 

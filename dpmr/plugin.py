@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 
 from dpmr.config import DEFAULT_DPMR_CONFIG
-from dpmr.decoder import decode as _decode_dpmr
-from dpmr.decoder import filter_stable_pdus
+from dpmr.decode_flow import decode as _decode_dpmr
+from dpmr.decode_flow import filter_stable_pdus
 from dpmr.dsp import frontend_dpmr
 from radio.pdu import pdus_to_standard_dicts
 from radio.protocol import ProtocolSpec

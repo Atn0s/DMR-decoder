@@ -3,17 +3,7 @@ import numpy as np
 import scipy.signal as signal
 import matplotlib.pyplot as plt
 
-# --- DMR L2 decode (ok-dmrlib 0.8.0) ---
-try:
-    from bitarray import bitarray
-    from bitarray.util import ba2int
-    from okdmr.dmrlib.etsi.fec.golay_20_8_7 import Golay2087
-    from okdmr.dmrlib.etsi.fec.bptc_196_96 import BPTC19696
-    from okdmr.dmrlib.etsi.fec.reed_solomon_12_9_4 import ReedSolomon1294
-    from okdmr.dmrlib.etsi.layer2.pdu.full_link_control import FullLinkControl
-    OKDMR_AVAILABLE = True
-except ImportError:
-    OKDMR_AVAILABLE = False
+from bitarray.util import ba2int
 
 # --- core/ imports (migrated functions) ---
 from core.burst_type import (
@@ -25,6 +15,8 @@ from core.dsp import (
     read_rawiq, _interp, adaptive_slice_bits,
     lc_front_end_compat as lc_front_end,
 )
+from dmr.fec import bptc_196_96_decode, golay_20_8_7_check, rs_12_9_4_check
+from dmr.layer2 import parse_full_link_control
 
 plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Liberation Sans', 'Arial']
 plt.rcParams['axes.unicode_minus'] = True
@@ -171,8 +163,6 @@ def decode_lc_header_from_symbols(seg132):
     """Decode a Voice LC Header from 132 sync-calibrated burst symbols.
     Verifies Slot-Type via Golay(20,8,7) and the FLC via Reed-Solomon(12,9,4).
     No silent pass: RS failure is reported honestly."""
-    if not OKDMR_AVAILABLE:
-        return {"ok": False, "reason": "okdmr not installed"}
     if seg132 is None or len(seg132) < 132:
         return {"ok": False, "reason": "burst out of range"}
 
@@ -181,7 +171,7 @@ def decode_lc_header_from_symbols(seg132):
     slot_type = ba[98:108] + ba[156:166]
     info = ba[0:98] + ba[166:264]
 
-    golay_ok = Golay2087.check(slot_type.copy())
+    golay_ok = golay_20_8_7_check(slot_type.copy())
     color_code = ba2int(slot_type[0:4])
     data_type = ba2int(slot_type[4:8])
 
@@ -195,23 +185,23 @@ def decode_lc_header_from_symbols(seg132):
         return res
 
     # BPTC(196,96): deinterleave + repair -> 96 bits = 72-bit FLC + 24-bit RS parity
-    decoded = BPTC19696.deinterleave_data_bits(info, repair_if_necessary=True)
+    decoded = bptc_196_96_decode(info, repair_if_necessary=True)
     data12 = decoded[0:96].tobytes()
-    rs_ok = ReedSolomon1294.check(data12, VLC_RS_MASK)
+    rs_ok = rs_12_9_4_check(data12, VLC_RS_MASK)
 
     res["rs_ok"] = rs_ok
     if not rs_ok:
         res["reason"] = "Reed-Solomon(12,9,4) mismatch (frame corrupt)"
         return res
 
-    flc = FullLinkControl.from_bits(decoded[0:96])
+    flc = parse_full_link_control(decoded[0:96])
     dst = flc.group_address or flc.target_address
     res.update({
         "ok": True,
-        "flco": int(flc.full_link_control_opcode.value),
-        "flco_name": flc.full_link_control_opcode.name,
-        "fid": int(flc.feature_set_id.value),
-        "fid_name": flc.feature_set_id.name,
+        "flco": int(flc.flco_value),
+        "flco_name": flc.flco_name,
+        "fid": int(flc.fid_value),
+        "fid_name": flc.fid_name,
         "dst_id": dst,
         "src_id": flc.source_address,
     })
@@ -314,7 +304,7 @@ def process_candidate(iq, f_offset, idx):
     # Uses a dedicated wider-filter front-end + sample-domain framing + per-burst
     # sync calibration + adaptive slicer + Reed-Solomon(12,9,4) verification.
     lc_result = None
-    if best["name"] is not None and OKDMR_AVAILABLE:
+    if best["name"] is not None:
         y_lc = lc_front_end(iq_dec)
         seen = set()
         for name in (best["name"], "BS Sourced", "MS Sourced"):
@@ -420,8 +410,6 @@ def main():
     print("=" * 80)
     print("   DMR Pipeline v2 (Timing Recovery + I&D + Sync Calib + LC Decode)")
     print("=" * 80)
-    if not OKDMR_AVAILABLE:
-        print("  [note] ok-dmrlib not importable -- LC header decode will be skipped.")
     iq = read_rawiq(target_file)
 
     # Stage 1: coarse Welch scan
@@ -470,8 +458,6 @@ def main():
                     print("       FLCO           : %s (%s)" % (lc['flco'], lc.get('flco_name', '')))
                 else:
                     print("     [LC HEADER NOT DECODED] reason: %s" % lc.get('reason'))
-            elif not OKDMR_AVAILABLE:
-                print("     (okdmr not installed -- skipped LC decode)")
         else:
             print("  -> [REJECTED] Non-DMR (P25 or noise)")
         plot_candidate(iq_dec, y_clipped, ncc_results, best, f_offset, idx)

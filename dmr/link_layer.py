@@ -2,18 +2,21 @@ import numpy as np
 from bitarray import bitarray
 from bitarray.util import ba2int
 
-from okdmr.dmrlib.etsi.fec.golay_20_8_7 import Golay2087
-from okdmr.dmrlib.etsi.fec.bptc_196_96 import BPTC19696
-from okdmr.dmrlib.etsi.fec.reed_solomon_12_9_4 import ReedSolomon1294
-from okdmr.dmrlib.etsi.fec.vbptc_128_72 import VBPTC12873
-from okdmr.dmrlib.etsi.fec.five_bit_checksum import FiveBitChecksum
-from okdmr.dmrlib.etsi.layer2.pdu.full_link_control import FullLinkControl
-from okdmr.dmrlib.etsi.layer2.pdu.csbk import CSBK
-from okdmr.dmrlib.etsi.layer2.pdu.embedded_signalling import EmbeddedSignalling
-from okdmr.dmrlib.etsi.layer2.elements.lcss import LCSS
-
 from dmr.constants import SlotDataType, VLC_RS_MASK
 from dmr.dsp import adaptive_slice_bits
+from dmr.fec import (
+    bptc_196_96_decode,
+    five_bit_checksum_verify,
+    golay_20_8_7_check,
+    rs_12_9_4_check,
+    vbptc_128_72_decode,
+)
+from dmr.layer2 import (
+    LCSS,
+    parse_csbk,
+    parse_embedded_signalling,
+    parse_full_link_control,
+)
 
 
 def decode_burst(symbols: np.ndarray, sync_type: str) -> dict | None:
@@ -22,7 +25,7 @@ def decode_burst(symbols: np.ndarray, sync_type: str) -> dict | None:
     Returns a unified PDU dict or None on FEC failure."""
     ba = adaptive_slice_bits(symbols)
     slot_bits = ba[98:108] + ba[156:166]   # 20-bit Slot Type field
-    if not Golay2087.check(slot_bits.copy()):
+    if not golay_20_8_7_check(slot_bits.copy()):
         return None
     color_code = ba2int(slot_bits[0:4])
     data_type  = ba2int(slot_bits[4:8])
@@ -39,12 +42,12 @@ def decode_burst(symbols: np.ndarray, sync_type: str) -> dict | None:
 
 def _decode_lc_or_terminator(ba264: bitarray, info196: bitarray,
                                color_code: int, pdu_type: str) -> dict | None:
-    decoded = BPTC19696.deinterleave_data_bits(info196, repair_if_necessary=True)
+    decoded = bptc_196_96_decode(info196, repair_if_necessary=True)
     data12  = decoded[0:96].tobytes()
-    if not ReedSolomon1294.check(data12, VLC_RS_MASK):
+    if not rs_12_9_4_check(data12, VLC_RS_MASK):
         return None
     try:
-        flc = FullLinkControl.from_bits(decoded[0:96])
+        flc = parse_full_link_control(decoded[0:96])
     except Exception:
         return None
     dst = flc.group_address or flc.target_address
@@ -53,18 +56,18 @@ def _decode_lc_or_terminator(ba264: bitarray, info196: bitarray,
         "src":      flc.source_address,
         "dst":      dst,
         "ts":       0,
-        "flco":     flc.full_link_control_opcode.name,
-        "fid":      flc.feature_set_id.name,
+        "flco":     flc.flco_name,
+        "fid":      flc.fid_name,
         "extra":    {"color_code": color_code},
         "raw_bits": ba264.tobytes(),
     }
 
 
 def _decode_csbk(ba264: bitarray, info196: bitarray, color_code: int) -> dict | None:
-    decoded = BPTC19696.deinterleave_data_bits(info196, repair_if_necessary=True)
+    decoded = bptc_196_96_decode(info196, repair_if_necessary=True)
     csbk_bits = decoded[0:96]
     try:
-        csbk = CSBK.from_bits(csbk_bits)
+        csbk = parse_csbk(csbk_bits)
     except Exception:
         return None
     return {
@@ -72,8 +75,8 @@ def _decode_csbk(ba264: bitarray, info196: bitarray, color_code: int) -> dict | 
         "src":     csbk.source_address or 0,
         "dst":     csbk.target_address or 0,
         "ts":      0,
-        "flco":    csbk.csbko.name,
-        "fid":     csbk.feature_set.name,
+        "flco":    csbk.csbko_name,
+        "fid":     csbk.fid_name,
         "extra":   {"color_code": color_code, "last_block": csbk.last_block},
         "raw_bits": ba264.tobytes(),
     }
@@ -100,7 +103,7 @@ class LateEntryCollector:
         signalling = center[8:40]                   # 32-bit fragment
 
         try:
-            emb = EmbeddedSignalling.from_bits(emb_bits)
+            emb = parse_embedded_signalling(emb_bits)
         except Exception:
             return None
         lcss = emb.link_control_start_stop
@@ -135,14 +138,14 @@ class LateEntryCollector:
     def _decode_assembled(self, last_ba264: bitarray) -> dict | None:
         b128 = self._frags[0] + self._frags[1] + self._frags[2] + self._frags[3]
         self.reset()
-        lc77 = VBPTC12873.deinterleave_data_bits(b128, include_cs5=True)
+        lc77 = vbptc_128_72_decode(b128, include_cs5=True)
         lc72 = lc77[0:72]
         rx_cs5 = ba2int(lc77[72:77])
-        cs5_ok = (rx_cs5 <= 30) and FiveBitChecksum.verify(lc72.tobytes(), rx_cs5)
+        cs5_ok = (rx_cs5 <= 30) and five_bit_checksum_verify(lc72.tobytes(), rx_cs5)
         if not cs5_ok:
             return None
         try:
-            flc = FullLinkControl.from_bits(lc77)
+            flc = parse_full_link_control(lc77)
         except Exception:
             return None
         dst = flc.group_address or flc.target_address
@@ -151,8 +154,8 @@ class LateEntryCollector:
             "src":     flc.source_address,
             "dst":     dst,
             "ts":      0,
-            "flco":    flc.full_link_control_opcode.name,
-            "fid":     flc.feature_set_id.name,
+            "flco":    flc.flco_name,
+            "fid":     flc.fid_name,
             "extra":   {"cs5_ok": cs5_ok},
             "raw_bits": last_ba264.tobytes(),
         }

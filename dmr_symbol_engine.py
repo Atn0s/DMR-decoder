@@ -7,8 +7,7 @@ import dmr_pipeline_v2 as P
 
 from bitarray import bitarray
 from bitarray.util import ba2int
-from okdmr.dmrlib.etsi.fec.golay_20_8_7 import Golay2087
-from okdmr.dmrlib.etsi.fec.bptc_196_96 import BPTC19696
+from dmr.fec import bptc_196_96_decode, golay_20_8_7_check
 
 Fs = 48000.0
 SPS = 10
@@ -107,14 +106,14 @@ def adaptive_slice(segc):
 def decode_burst_bits(ba):
     """切片 Slot Type，Golay 校验，提取 CC/DataType；若是 Voice LC Header 再做 BPTC。"""
     slot = ba[98:108] + ba[156:166]
-    golay_ok = Golay2087.check(slot.copy())
+    golay_ok = golay_20_8_7_check(slot.copy())
     cc = ba2int(slot[0:4])
     dt = ba2int(slot[4:8])
     res = {"golay_ok": golay_ok, "color_code": cc, "data_type": dt}
     if not golay_ok or dt != 1:
         return res
     info = ba[0:98] + ba[166:264]
-    decoded = BPTC19696.deinterleave_data_bits(info, repair_if_necessary=True)
+    decoded = bptc_196_96_decode(info, repair_if_necessary=True)
     lc = decoded[0:72]
     lcb = lc.tobytes()
     res.update({

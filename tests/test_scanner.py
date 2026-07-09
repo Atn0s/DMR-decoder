@@ -1,4 +1,5 @@
 import os
+import wave
 import numpy as np
 import pytest
 from scanner import detect_sample_rate, scan_file
@@ -31,6 +32,38 @@ def test_read_rawiq_scale_follows_dtype(tmp_path):
 
     assert default_iq_scale("int8") == 128.0
     assert np.allclose(iq, np.array([0.5 - 0.5j, 127 / 128 - 1j]))
+
+
+def test_read_rawiq_accepts_stereo_pcm_wav(tmp_path):
+    path = tmp_path / "sample.wav"
+    frames = np.array(
+        [
+            [16384, -16384],
+            [32767, -32768],
+            [0, 8192],
+        ],
+        dtype="<i2",
+    )
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(2)
+        wav.setsampwidth(2)
+        wav.setframerate(48_000)
+        wav.writeframes(frames.tobytes())
+
+    iq = read_rawiq(str(path))
+
+    assert np.allclose(iq, np.array([0.5 - 0.5j, 32767 / 32768 - 1j, 0 + 0.25j]))
+
+
+def test_detect_sample_rate_reads_wav_header(tmp_path):
+    path = tmp_path / "sample.wav"
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(2)
+        wav.setsampwidth(2)
+        wav.setframerate(48_000)
+        wav.writeframes(np.zeros((4, 2), dtype="<i2").tobytes())
+
+    assert detect_sample_rate(str(path)) == 48_000
 
 
 def test_scan_file_returns_list():

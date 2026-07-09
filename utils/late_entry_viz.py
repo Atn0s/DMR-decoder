@@ -20,8 +20,7 @@ if _ROOT not in sys.path:
 
 import dmr_pipeline_v2 as P
 import late_entry as LE
-from okdmr.dmrlib.etsi.layer2.pdu.embedded_signalling import EmbeddedSignalling
-from okdmr.dmrlib.etsi.layer2.elements.lcss import LCSS
+from dmr.layer2 import LCSS, parse_embedded_signalling
 
 _OUT_PNG = os.path.join(_ROOT, 'output', 'late_entry_viz.png')
 raw = P.read_rawiq(os.path.join(_ROOT, 'data', 'dmr_2_78125.rawiq'))
@@ -44,7 +43,7 @@ for ai, (A, sgn) in enumerate(anchors[:12]):
             break
         emb_bits, _ = LE.parse_emb_center(ba)
         try:
-            emb = EmbeddedSignalling.from_bits(emb_bits)
+            emb = parse_embedded_signalling(emb_bits)
             burst_info.append((LCSS_SHORT.get(emb.link_control_start_stop, '?'), emb.emb_parity_ok))
         except Exception:
             burst_info.append(('?', False))

@@ -119,7 +119,7 @@ $PY utils/wideband_anim.py --fps 2        # → output/wideband_anim.gif
 | `utils/wideband_viz.py`   | 静态四阶段分级图 |
 | `utils/wideband_anim.py`  | 离线动画 GIF |
 | `utils/late_entry_viz.py` | 晚入帧可视化 |
-| `debug/verify_src_dst.py` | 验证 / 诊断：手工 ETSI 比特提取 vs okdmr 库（含 FEC 状态） |
+| `debug/verify_src_dst.py` | 验证 / 诊断：手工 ETSI 比特提取 vs 原生解析器（含 FEC 状态） |
 | `realtime/wideband_source.py` | `FileWidebandSource`（新增 `header_bytes` 支持 BVSP 头） |
 | `realtime/wideband_scanner.py` | `WidebandScanner` 两级编排（信道化 + 逐子带解码） |
 

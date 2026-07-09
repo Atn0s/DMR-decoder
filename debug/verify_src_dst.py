@@ -5,9 +5,9 @@ LC / terminator / late-entry PDU that decodes, prints side by side:
   - the raw FEC-protected LC bytes,
   - whether the Reed-Solomon (LC) / CS5 (late-entry) check passed,
   - SRC/DST/FLCO/FID extracted MANUALLY per ETSI TS 102 361-1 bit positions,
-  - SRC/DST/FLCO/FID as reported by the okdmr library.
+  - SRC/DST/FLCO/FID as reported by the native parser.
 
-If the manual extraction matches the library AND the FEC check passes, the
+If the manual extraction matches the parser AND the FEC check passes, the
 addresses are genuinely carried in the signal (not a parsing artifact or a
 coincidental "1").
 
@@ -21,7 +21,9 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-import core.decoder as D
+import dmr.link_layer as D
+from dmr.constants import VLC_RS_MASK
+from dmr.fec import bptc_196_96_decode, rs_12_9_4_check, vbptc_128_72_decode
 from realtime.wideband_source import FileWidebandSource
 from realtime.wideband_scanner import WidebandScanner
 
@@ -46,9 +48,9 @@ def _hook_lc():
     orig = D._decode_lc_or_terminator
 
     def patched(ba264, info196, color_code, pdu_type):
-        decoded = D.BPTC19696.deinterleave_data_bits(info196, repair_if_necessary=True)
+        decoded = bptc_196_96_decode(info196, repair_if_necessary=True)
         data12 = decoded[0:96].tobytes()       # 12 bytes: 9 LC + 3 RS parity
-        rs_ok = D.ReedSolomon1294.check(data12, D.VLC_RS_MASK)
+        rs_ok = rs_12_9_4_check(data12, VLC_RS_MASK)
         res = orig(ba264, info196, color_code, pdu_type)
         if res is not None:
             mflco, mfid, msvc, mdst, msrc = _manual_lc_fields(data12[:9])
@@ -60,7 +62,7 @@ def _hook_lc():
                 print(f"    raw LC bytes : {data12[:9].hex()}  (+RS {data12[9:12].hex()})")
                 print(f"    manual (ETSI): FLCO={mflco} FID={mfid} SVC={msvc} "
                       f"DST={mdst} SRC={msrc}")
-                print(f"    okdmr library: FLCO={res['flco']} FID={res['fid']} "
+                print(f"    native parser: FLCO={res['flco']} FID={res['fid']} "
                       f"DST={res['dst']} SRC={res['src']}")
                 print(f"    --> SRC/DST match: {'YES' if match else 'NO !!!'}")
         return res
@@ -73,9 +75,9 @@ def _hook_late_entry():
 
     def patched(self, last_ba264):
         # reconstruct the 72-bit LC the same way _decode_assembled does, so we can
-        # extract the address fields manually before the library parses them.
+        # extract the address fields manually before the parser reads them.
         b128 = self._frags[0] + self._frags[1] + self._frags[2] + self._frags[3]
-        lc77 = D.VBPTC12873.deinterleave_data_bits(b128, include_cs5=True)
+        lc77 = vbptc_128_72_decode(b128, include_cs5=True)
         lc9 = lc77[0:72].tobytes()
         res = orig(self, last_ba264)
         if res is not None:
@@ -89,7 +91,7 @@ def _hook_late_entry():
                 print(f"    raw LC bytes : {lc9.hex()}")
                 print(f"    manual (ETSI): FLCO={mflco} FID={mfid} SVC={msvc} "
                       f"DST={mdst} SRC={msrc}")
-                print(f"    okdmr library: FLCO={res['flco']} FID={res['fid']} "
+                print(f"    native parser: FLCO={res['flco']} FID={res['fid']} "
                       f"DST={res['dst']} SRC={res['src']}")
                 print(f"    --> SRC/DST match: {'YES' if match else 'NO !!!'}")
         return res
@@ -107,7 +109,7 @@ def main():
     _hook_late_entry()
 
     print(f"== Verifying SRC/DST parsing on {idx}.bvsp ==")
-    print("   (manual ETSI bit extraction vs okdmr library, with FEC status)")
+    print("   (manual ETSI bit extraction vs native parser, with FEC status)")
     src = FileWidebandSource(path, sample_rate=FS, center_hz=CENTER_HZ,
                              chunk_samples=int(FS), throttle=False,
                              header_bytes=BVSP_HEADER_BYTES)

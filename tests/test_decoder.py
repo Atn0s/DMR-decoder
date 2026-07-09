@@ -67,8 +67,7 @@ def test_late_entry_collector_reset():
 
 
 def test_late_entry_collector_state_machine():
-    from okdmr.dmrlib.etsi.layer2.pdu.embedded_signalling import EmbeddedSignalling
-    from okdmr.dmrlib.etsi.layer2.elements.lcss import LCSS
+    from dmr.layer2 import LCSS
     col = LateEntryCollector()
 
     def make_ba_with_lcss(lcss_val):
@@ -76,15 +75,12 @@ def test_late_entry_collector_state_machine():
         ba = bitarray(264)
         ba.setall(0)
         # EMB header is center[0:8] + center[40:48] where center = ba[108:156]
-        # LCSS occupies bits [0:2] of the EMB 16-bit header (after last_block and protect_flag)
-        # EmbeddedSignalling layout: [0]=last_block [1]=protect_flag [2:4]=lcss [4:8]=color_code [8:16]=emb_parity
-        # We set lcss in bits [2:4] of emb_bits = center[0:8]+center[40:48]
-        # center[0:8] = ba[108:116], center[40:48] = ba[148:156]
-        # emb_bits[0]=ba[108], emb_bits[1]=ba[109], emb_bits[2]=ba[110], emb_bits[3]=ba[111]
-        # LCSS FirstFragmentLC = 3 = 0b11
+        # EmbeddedSignalling layout: [0:4]=color_code [4]=PI [5:7]=LCSS [7:16]=parity.
+        # center[0:8] = ba[108:116], center[40:48] = ba[148:156].
+        # emb_bits[5]=ba[113], emb_bits[6]=ba[114].
         lcss_bits = f"{lcss_val:02b}"
-        ba[110] = int(lcss_bits[0])
-        ba[111] = int(lcss_bits[1])
+        ba[113] = int(lcss_bits[0])
+        ba[114] = int(lcss_bits[1])
         return ba
 
     # Feed a FirstFragmentLC burst — should start collecting

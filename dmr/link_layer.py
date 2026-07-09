@@ -13,6 +13,8 @@ from dmr.fec import (
 )
 from dmr.layer2 import (
     LCSS,
+    FullLinkControl,
+    CSBK,
     parse_csbk,
     parse_embedded_signalling,
     parse_full_link_control,
@@ -30,18 +32,90 @@ def decode_burst(symbols: np.ndarray, sync_type: str) -> dict | None:
     color_code = ba2int(slot_bits[0:4])
     data_type  = ba2int(slot_bits[4:8])
     info = ba[0:98] + ba[166:264]          # 196-bit info field
+    slot_extra = _slot_extra(slot_bits, color_code, data_type, sync_type)
 
     if data_type == SlotDataType.VOICE_LC_HEADER:
-        return _decode_lc_or_terminator(ba, info, color_code, "LC_HEADER")
+        return _decode_lc_or_terminator(ba, info, color_code, "LC_HEADER", slot_extra)
     elif data_type == SlotDataType.TERMINATOR_WITH_LC:
-        return _decode_lc_or_terminator(ba, info, color_code, "TERMINATOR")
+        return _decode_lc_or_terminator(ba, info, color_code, "TERMINATOR", slot_extra)
     elif data_type == SlotDataType.CSBK:
-        return _decode_csbk(ba, info, color_code)
+        return _decode_csbk(ba, info, color_code, slot_extra)
     return None
 
 
-def _decode_lc_or_terminator(ba264: bitarray, info196: bitarray,
-                               color_code: int, pdu_type: str) -> dict | None:
+def _bits_hex(bits: bitarray) -> str:
+    return bits.tobytes().hex()
+
+
+def _data_type_name(data_type: int) -> str:
+    try:
+        return SlotDataType(data_type).name
+    except ValueError:
+        return f"UNKNOWN_{data_type}"
+
+
+def _slot_extra(slot_bits: bitarray, color_code: int, data_type: int, sync_type: str) -> dict:
+    return {
+        "sync_type": sync_type,
+        "color_code": color_code,
+        "data_type": data_type,
+        "data_type_name": _data_type_name(data_type),
+        "slot_type_bits": slot_bits.to01(),
+        "slot_type_hex": _bits_hex(slot_bits),
+        "fec": {"golay_ok": True},
+    }
+
+
+def _lc_extra(
+    slot_extra: dict,
+    info196: bitarray,
+    decoded96: bitarray,
+    data12: bytes,
+    flc: FullLinkControl,
+    rs_ok: bool,
+) -> dict:
+    extra = dict(slot_extra)
+    fec = dict(extra.get("fec", {}))
+    fec.update({"bptc_196_96_ok": True, "rs_12_9_4_ok": rs_ok})
+    extra.update({
+        "fec": fec,
+        "info196_hex": _bits_hex(info196),
+        "decoded96_hex": _bits_hex(decoded96[0:96]),
+        "lc_payload_hex": data12[:9].hex(),
+        "rs_parity_hex": data12[9:12].hex(),
+        "flc": flc.to_extra(),
+    })
+    return extra
+
+
+def _csbk_extra(
+    slot_extra: dict,
+    info196: bitarray,
+    decoded96: bitarray,
+    csbk: CSBK,
+) -> dict:
+    extra = dict(slot_extra)
+    fec = dict(extra.get("fec", {}))
+    fec.update({"bptc_196_96_ok": True})
+    extra.update({
+        "fec": fec,
+        "info196_hex": _bits_hex(info196),
+        "decoded96_hex": _bits_hex(decoded96[0:96]),
+        "csbk_payload_hex": _bits_hex(decoded96[0:96]),
+        "csbk": csbk.to_extra(),
+        "last_block": csbk.last_block,
+    })
+    return extra
+
+
+def _decode_lc_or_terminator(
+    ba264: bitarray,
+    info196: bitarray,
+    color_code: int,
+    pdu_type: str,
+    slot_extra: dict | None = None,
+) -> dict | None:
+    slot_extra = slot_extra or {"color_code": color_code}
     decoded = bptc_196_96_decode(info196, repair_if_necessary=True)
     data12  = decoded[0:96].tobytes()
     if not rs_12_9_4_check(data12, VLC_RS_MASK):
@@ -58,12 +132,18 @@ def _decode_lc_or_terminator(ba264: bitarray, info196: bitarray,
         "ts":       0,
         "flco":     flc.flco_name,
         "fid":      flc.fid_name,
-        "extra":    {"color_code": color_code},
+        "extra":    _lc_extra(slot_extra, info196, decoded, data12, flc, True),
         "raw_bits": ba264.tobytes(),
     }
 
 
-def _decode_csbk(ba264: bitarray, info196: bitarray, color_code: int) -> dict | None:
+def _decode_csbk(
+    ba264: bitarray,
+    info196: bitarray,
+    color_code: int,
+    slot_extra: dict | None = None,
+) -> dict | None:
+    slot_extra = slot_extra or {"color_code": color_code}
     decoded = bptc_196_96_decode(info196, repair_if_necessary=True)
     csbk_bits = decoded[0:96]
     try:
@@ -77,7 +157,7 @@ def _decode_csbk(ba264: bitarray, info196: bitarray, color_code: int) -> dict | 
         "ts":      0,
         "flco":    csbk.csbko_name,
         "fid":     csbk.fid_name,
-        "extra":   {"color_code": color_code, "last_block": csbk.last_block},
+        "extra":   _csbk_extra(slot_extra, info196, decoded, csbk),
         "raw_bits": ba264.tobytes(),
     }
 
@@ -89,10 +169,12 @@ class LateEntryCollector:
 
     def __init__(self):
         self._frags: list = []
+        self._embs: list[dict] = []
         self._collecting: bool = False
 
     def reset(self):
         self._frags = []
+        self._embs = []
         self._collecting = False
 
     def feed(self, ba264: bitarray, sync_type: str) -> dict | None:
@@ -112,6 +194,7 @@ class LateEntryCollector:
             if lcss == LCSS.FirstFragmentLC:
                 self._collecting = True
                 self._frags = [signalling]
+                self._embs = [emb.to_extra()]
         else:
             expected_cont = len(self._frags) < 3
             if expected_cont:
@@ -121,6 +204,7 @@ class LateEntryCollector:
                     if lcss == LCSS.FirstFragmentLC:
                         self._collecting = True
                         self._frags = [signalling]
+                        self._embs = [emb.to_extra()]
                     return None
             else:
                 # expecting LastFragmentLCorCSBK for the 4th fragment
@@ -129,14 +213,17 @@ class LateEntryCollector:
                     if lcss == LCSS.FirstFragmentLC:
                         self._collecting = True
                         self._frags = [signalling]
+                        self._embs = [emb.to_extra()]
                     return None
             self._frags.append(signalling)
+            self._embs.append(emb.to_extra())
             if len(self._frags) == 4:
                 return self._decode_assembled(ba264)
         return None
 
     def _decode_assembled(self, last_ba264: bitarray) -> dict | None:
         b128 = self._frags[0] + self._frags[1] + self._frags[2] + self._frags[3]
+        emb_records = list(self._embs)
         self.reset()
         lc77 = vbptc_128_72_decode(b128, include_cs5=True)
         lc72 = lc77[0:72]
@@ -149,6 +236,19 @@ class LateEntryCollector:
         except Exception:
             return None
         dst = flc.group_address or flc.target_address
+        extra = {
+            "cs5_ok": cs5_ok,
+            "fec": {
+                "vbptc_128_72_ok": True,
+                "cs5_ok": cs5_ok,
+                "emb_qr_ok_count": sum(1 for emb in emb_records if emb.get("emb_parity_ok")),
+            },
+            "embedded_signalling": emb_records,
+            "fragment_count": len(emb_records),
+            "embedded_lc_hex": lc72.tobytes().hex(),
+            "cs5_value": rx_cs5,
+            "flc": flc.to_extra(),
+        }
         return {
             "type":    "LATE_ENTRY",
             "src":     flc.source_address,
@@ -156,6 +256,6 @@ class LateEntryCollector:
             "ts":      0,
             "flco":    flc.flco_name,
             "fid":     flc.fid_name,
-            "extra":   {"cs5_ok": cs5_ok},
+            "extra":   extra,
             "raw_bits": last_ba264.tobytes(),
         }

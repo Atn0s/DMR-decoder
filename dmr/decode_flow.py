@@ -5,6 +5,7 @@ import numpy as np
 from dmr.config import DEFAULT_DMR_CONFIG, DMRConfig
 from dmr.constants import SPS, SYNC_TEMPLATES
 from dmr.link_layer import LateEntryCollector, decode_burst
+from dmr.session import DMRSessionAssembler
 from dmr.dsp import _interp, adaptive_slice_bits, find_sync_positions, recover_burst
 
 
@@ -56,9 +57,10 @@ def decode_dmr_flow(y: np.ndarray, config: DMRConfig | None = None) -> list[dict
         peak_distance_samples=config.sync_peak_distance_samples,
     )
     results = []
+    session = DMRSessionAssembler()
     seen_bursts: set[tuple] = set()
 
-    for center, polarity, sync_type in positions:
+    for center, polarity, sync_type in sorted(positions, key=lambda item: item[0]):
         dedup_key = (round(center / config.burst_dedup_window_samples), sync_type)
         if dedup_key in seen_bursts:
             continue
@@ -80,7 +82,15 @@ def decode_dmr_flow(y: np.ndarray, config: DMRConfig | None = None) -> list[dict
                     break
                 pdu = collector.feed(ba, sync_type)
                 if pdu is not None:
+                    _stamp_pdu(
+                        pdu,
+                        int(center + config.voice_burst_stride_samples * j),
+                        sync_type,
+                    )
                     results.append(dict(pdu))
+                    call = session.feed(pdu, sps=SPS)
+                    if call is not None:
+                        results.append(call)
                     break
         else:
             symbols = recover_burst(y, center, polarity, sync_type)
@@ -88,9 +98,23 @@ def decode_dmr_flow(y: np.ndarray, config: DMRConfig | None = None) -> list[dict
                 continue
             pdu = decode_burst(symbols, sync_type)
             if pdu is not None:
+                _stamp_pdu(pdu, int(center), sync_type)
                 results.append(dict(pdu))
+                call = session.feed(pdu, sps=SPS)
+                if call is not None:
+                    results.append(call)
 
+    call = session.finalize(sps=SPS)
+    if call is not None:
+        results.append(call)
     return results
+
+
+def _stamp_pdu(pdu: dict, sample: int, sync_type: str) -> None:
+    extra = pdu.setdefault("extra", {})
+    extra.setdefault("fs_start", sample)
+    extra.setdefault("sync_center_sample", sample)
+    extra.setdefault("sync_type", sync_type)
 
 
 def decode(y: np.ndarray, config: DMRConfig | None = None) -> list[dict]:

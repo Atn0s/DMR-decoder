@@ -47,6 +47,8 @@ class SessionAggregator:
         key = self._key(pdu)
         wid = pdu_get(pdu, "_window_id", 0)
         ptype = pdu_get(pdu, "type")
+        if ptype == "DMR_CALL":
+            return
 
         rec = self._calls.get(key)
 
